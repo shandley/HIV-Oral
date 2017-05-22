@@ -9,10 +9,6 @@ output:
   pdf_document: default
 ---
 
-```{r global_options, include=FALSE}
-knitr::opts_chunk$set(fig.width=6, fig.height=6, fig.path='figures/HIV_oral_16S_', dev='pdf',
-                      warning=FALSE, message=FALSE)
-```
 # Project Description:
 Analysis of 16S rRNA amplicons in oral samples (saliva) collected from HIV infected patients pre-ART treatment and 24 weeks after treatment initiation.
 
@@ -31,19 +27,16 @@ Preprocessing steps can be viewed in **HIV_oral_preprocessing.Rmd**.
 * CCA code adopted from [michberr]https://github.com/michberr: http://deneflab.github.io/MicrobeMiseq/demos/mothur_2_phyloseq.html
 
 
-######################
-#                    #
-# Project Initiation #
-#                    #            
-######################
-
-```{r Set Working Directory, include=FALSE}
-setwd("~/Dropbox/research/AIDS/HIV/presti/HIV_oral/dada2/")
-
+```{r global_options, include = FALSE}
+knitr::opts_chunk$set(fig.width=10,
+                      fig.height=6,
+                      fig.path="./figures/example_",
+                      dev='pdf',
+                      warning=FALSE,
+                      message=FALSE)
 ```
 
-```{r, Load Libraries, include=FALSE}
-# Pacakges needed for analysis
+```{r initiate-environment, include=FALSE}
 library("ggplot2")
 packageVersion("ggplot2")
 library("phyloseq")
@@ -60,31 +53,19 @@ library("knitr")
 packageVersion("knitr")
 library("dplyr")
 packageVersion("dplyr")
-library("plyr")
-packageVersion("plyr")
 library("DESeq2")
 packageVersion("DeSeq2")
 library("plotly")
 packageVersion("plotly")
-library("data.table")
-packageVersion("data.table")
-library("doParallel")
-packageVersion("doParallel")
-library("randomForest")
-packageVersion("randomForest")
-library("biobroom")
-packageVersion("biobroom")
-
-# Packages being used for testing
-library("caret")
-packageVersion("caret")
-library("nlme")
-packageVersion("nlme")
+library("picante")
+packageVersion("picante")
+library(indicspecies)
+packageVersion("indicspecies")
 
 ```
-# Load phyloseq data generated from dada2
+##Load phyloseq data generated from dada2
 
-```{r Load Data}
+```{r initiate-data}
 # Load Phyloseq Object generated in HIV_oral_preprocessing.Rmd
 ps0 <- readRDS("./data/HIV_oral.ps0.gg.rds")
 ps0
@@ -98,24 +79,21 @@ sample_variables(ps0)
 
 ```
 
-#########################################
-#                                       #
-# Factor reclassification  & reordering #
-#                                       #
-#########################################
+##Factor reordering and renaming
 
-It is useful to dedicate a section of the analysis to factor editing, reclassification and reordering. This is useful to remove characters that may be part of the mapping file, but unwanted in plots (such as _) and also to refactor levels so they appear in a desired order in plot facets or differential abundance analysis.
-
-```{r}
+```{r factor-adjustments}
 # Factor re-ordering, relabelling, etc.
 
 # Remove the _ from Week 24
+sample_data(ps0)$Week
 sample_data(ps0)$Week <- factor(sample_data(ps0)$Week, labels = c("Baseline", "Week 24"))
+sample_data(ps0)$Week
 
 # Reorder and relabel CD4 category factors
 sample_data(ps0)$CD4_category
 sample_data(ps0)$CD4_category  <- factor(sample_data(ps0)$CD4_category, levels = c("low", "high"))
 sample_data(ps0)$CD4_category
+
 sample_data(ps0)$CD4_category <- factor(sample_data(ps0)$CD4_category, labels = c("CD4 Low", "CD4 High"))
 sample_data(ps0)$CD4_category
 
@@ -123,22 +101,15 @@ sample_data(ps0)$CD4_category
 sample_data(ps0)$VL_category
 sample_data(ps0)$VL_category  <- factor(sample_data(ps0)$VL_category, levels = c("low", "high", "Not collected"))
 sample_data(ps0)$VL_category
+
 sample_data(ps0)$VL_category <- factor(sample_data(ps0)$VL_category, labels = c("VL Low", "VL High", "NC"))
 sample_data(ps0)$VL_category
 
 ```
 
-#################
-#               #
-# Preprocessing #
-#               #
-#################
+#Summary Statistics
 
-This is a series of steps to detect and remove samples that are not useful for analysis. For example, if there are any samples that have 0 or a "few" reads, they can normally be removed. In addition, you can remove specific taxa, for example, I frequently remove samples classified as mitochondira and chloroplast.
-
-A series of plots are also generated to provide a view of the per sample sequencing depth. These can be useful for determining a cut-off to remove samples with low sequence number.
-
-```{r Summary Statistics, fig.height=4, fig.width=8}
+```{r data-assessment, fig.height=4, fig.width=8}
 # Preprocessing
 
 # Are their any RSV's in the data with zero reads. If so, how many?
@@ -160,9 +131,6 @@ ps0 <- ps0 %>%
     Class   != "Chloroplast"
   )
 ps0
-
-# Remove 'NA' Phylum
-ps0 <- subset_taxa(ps0, !is.na(Phylum) & !Phylum %in% c("","uncharacterized"))
 
 # Generate a data.frame of the sorted number of reads and summary of RSVs
 readsumsdf = data.frame(nreads = sort(taxa_sums(ps0), TRUE), sorted = 1:ntaxa(ps0), 
@@ -211,15 +179,21 @@ min(sample_sums(ps0))
 
 ```
 
-########################
-#                      #
-# Prevelance Filtering #
-#                      #
-########################
+```{r outlier-sample-evaluation}
+# Outlier evaluation
+out.bray <- ordinate(ps0, method = "MDS", distance = "bray")
+p.MDS.outlier <- plot_ordination(ps0, out.bray, color = "Week") +
+  theme_bw() +
+  geom_point(size = 2) +
+  ggtitle("MDS of Bray Distances \nOutlier Evaluation")
+  #geom_text(aes(label = Well), size = 3, check_overlap = FALSE, vjust = -1)
+p.MDS.outlier
 
-This is useful for assessing and removing taxa that are infrequently present in samples. It can be useful to remove these samples for statistical tests (e.g. DeSeq2). This may be less useful for assessing alpha and beta diversity, so it is useful to keep one file of all of the data, and one with the low-prevlant samples removed and compare results between the two.
+```
 
-```{r Prevelance Filtering}
+##Prevelance filtering
+
+```{r prevalence-assessment}
 # Prevelance filtering
 # Calculate feature prevelance across the data set
 prevdf <- apply(X = otu_table(ps0), MARGIN = ifelse(taxa_are_rows(ps0), yes = 1, no = 2), FUN = function(x){sum(x > 0)})
@@ -236,7 +210,7 @@ plyr::ddply(prevdf, "Phylum", function(df1){cbind(mean(df1$Prevalence),sum(df1$P
 prevdf1 <- subset(prevdf, Phylum %in% get_taxa_unique(ps0, "Phylum"))
 p.prevdf1 <- ggplot(prevdf1, aes(TotalAbundance, Prevalence / nsamples(ps0),color=Phylum)) +
   # Include a guess for parameter
-  geom_hline(yintercept = 0.05, alpha = 0.5, linetype = 2) +
+  geom_hline(yintercept = 0.03, alpha = 0.5, linetype = 2) +
   geom_point(size = 3, alpha = 0.7) +
   scale_x_log10() +
   xlab("Total Abundance") + ylab("Prevalence [Frac. Samples]") +
@@ -270,17 +244,9 @@ p.prevdf1
 
 ```
 
-########################
-#                      #
-# Data transformations #
-#                      #
-########################
+##Data transformations
 
-Commonly used data transformations. May or may not be useful for downstream analysis, but are useful to prepare ahead of time and give a could indication of the normality of the data and how various transformations effect the data.
-
-```{r Data transformations, fig.width=8, fig.height=6}
-# You will need to repeat these for the subsets if you want to analyze transformed subsets
-
+```{r data-transform}
 # Transform to Realative abundances
 ps0.ra <- transform_sample_counts(ps0, function(OTU) OTU/sum(OTU))
 
@@ -298,41 +264,24 @@ plot(sort(sample_sums(ps0.ra), TRUE), type = "o", main = "Relative Abundance", y
 plot(sort(sample_sums(ps0.prop), TRUE), type = "o", main = "Proportional Abundance", ylab = "RSVs", xlab = "Samples")
 par(mfrow=c(1,1))
 
-# Visual inspection of log transformation
+# Histograms of the non-transformed data vs. the transformed data can address the shift to normality
 p.nolog <- qplot(rowSums(otu_table(ps0))) + ggtitle("Raw Counts") +
   theme_bw() +
-  theme(axis.text = element_text(size = 20)) +
-  theme(axis.title = element_text(size = 20)) +
-  theme(legend.text = element_text(size = 18)) +
   xlab("Row Sum") +
   ylab("# of Samples")
 
 p.log <- qplot(log10(rowSums(otu_table(ps0)))) +
   ggtitle("log10 transformed counts") +
   theme_bw() +
-  theme(axis.text = element_text(size = 20)) +
-  theme(axis.title = element_text(size = 20)) +
-  theme(legend.text = element_text(size = 18)) +
   xlab("Row Sum") +
   ylab("# of Samples")
 
 grid.arrange(p.nolog, p.log, ncol = 2)
 
-# Note: log transformation reasonably shifts the data to normality and should be used for downstream analysis when appropriate
-
 ```
+##Subsetting
 
-##############
-#            #
-# Subsetting #
-#            #
-##############
-
-Subsetting restructures the data into smaller components for independent analysis. Of note, many plots can be created in ggplot2 using facet_grid or facet_wrap which would alleviate the need to generate these subsets. But other analysis, such as DeSeq2 differential abundance testing benefit from having well-defined data subsets.
-
-Of note, we are subsetting the original data prior to transformation. If you wish to analyze transformed data, you will need to apply appropriate functions to each subset.
-
-```{r Subsetting}
+```{r subsetting}
 # Subset. Always subset after taxa/sample filtering
 # Baseline
 ps0.base <- subset_samples(ps0, Week == "Baseline")
@@ -368,18 +317,9 @@ ps0.24.no_vl_nc <- subset_samples(ps0.24, VL_category != "NC")
 ps0.24.no_vl_nc
 
 ```
+##Community composition plotting
 
-#################
-#               #
-# Taxa Barplots #
-#               #
-#################
-
-Barplots displaying bacterial phyla present in samples. It is useful to filter out very low abundant taxa which are minor components. They contribute very little to the visualization and clutter the bars and legends.
-
-This code will also rename the ggplot2 taxaonomic values (e.g. p__Actinobacteria) to the more simple 'name only' (e.g. Actinobacteria).
-
-```{r Barplots, fig.width=8, fig.height=6}
+```{r community-composition-plots}
 # Community composition - Baseline and Week 24 timepoints combined
 
 # Phyla level plots
@@ -415,46 +355,9 @@ ggplot(ps0_phylum, aes(x = SampleNo, y = Abundance, fill = Phylum)) +
   scale_fill_manual(values = c('#1b9e77','#d95f02','#7570b3','#e7298a','#66a61e','#e6ab02','#a6761d','#666666'))
 
 ```
+# Alpha Diversity Analysis
 
-#############################
-#                           #
-# Sample Outlier Evaluation #
-#                           #
-#############################
-
-An MDS plot of Bray-Curtis dissimilarity can be useful to assess if there are obvious sample outliers in the data. If outliers are suspected based on this plot one can consider their removal. Removal of outliers should be judge carefully.
-
-```{r Sample Outlier Evaluation, fig.width=8, fig.height=6}
-# Outlier evaluation
-out.bray.log <- ordinate(ps0.log, method = "MDS", distance = "bray")
-p.MDS.outlier <- plot_ordination(ps0.log, out.bray.log, color = "Week", shape ="VL_category") +
-  theme_bw() +
-  geom_point(size = 5) +
-  ggtitle("MDS of Bray Distances \n Outlier Evaluation \nlog transformed data") +
-  geom_text(aes(label = patient_id), size = 4, check_overlap = FALSE, vjust = -1) +
-  facet_wrap(~Week) +
-  theme(plot.title = element_text(hjust = 0.5, size = 12)) +
-  theme(strip.text = element_text(size = 12)) +
-  theme(axis.text = element_text(size = 12)) +
-  theme(axis.title = element_text(size = 12)) +
-  theme(legend.text = element_text(size = 12))
-p.MDS.outlier
-
-# No obvious sample outliers. Data just seems to be highly variable
-
-```
-
-############################
-#                          #
-# Alpha Diversity Analysis #
-#                          #
-############################
-
-Analysis of the numbers of taxa detected (Richness) and their diversity (Shannon Diversity). Other measures (Simpsons, Chao1, ACE, etc.) can also be calculated by changing the measures argument. See ?plot_richness for details.
-
-A table of alpha diversity measures is also created which can then be imported into Excel or Prism for further analysis.
-
-```{r Alpha Diversity Analysis, fig.width=8, fig.height=6}
+```{r alpha-diversity}
 # Richness plots | Requires intergers so can't be performed on transformed data
 p.rich <- plot_richness(ps0, measures=c("Observed"), col = "CD4_category", sortby = "Observed") +
   theme_bw() +
@@ -545,18 +448,9 @@ grid.arrange(p.box.rich.vl, p.box.shannon.vl, nrow = 2)
 
 ```
 
-###########################
-#                         #
-# Beta Diversity Analysis #
-#                         #
-###########################
+#Beta Diversity Analysis
 
-Analysis of per sample community composition relationships. This is an exploratory process. One should consider what each distance measure means in the context of their data set. It is good practice to:
-
-1. Compare several distance measures
-2. Explore several PC axis
-
-```{r Beta Diversity Analysis, fig.width=8, fig.height=8}
+```{r beta-diversity}
 #Ordination Analysis
 
 # Multiple methods - All samples
@@ -616,9 +510,16 @@ grid.arrange(p.pcoa.uni.week, p.pcoa.wuni.week, p.dpcoa.week, nrow = 3)
 
 ```
 
-```{r Publication PcoA, fig.width=8, fig.height=8}
+```{r publication-pcoa}
+# Remove Samples with uncollected (Not Collected) viral loads
+sample_data(ps0.log)$VL_category
+ps0.log.rem_nc <- subset_samples(ps0.log, VL_category != "NC")
+ps0.log.rem_nc
+
+ord.ps0.log.rem_nc.wuni <- ordinate(ps0.log.rem_nc, method = "PCoA", distance = "wunifrac")
+
 #  Single PCoA lot for presentation / publication
-plot_ordination(ps0.log, ord.pcoa.wuni, color = "VL_category") +
+plot_ordination(ps0.log.rem_nc, ord.ps0.log.rem_nc.wuni, color = "VL_category") +
   theme_bw() +
   geom_point(size=4, alpha = 0.7) +
   scale_color_brewer(palette = "Dark2") +
@@ -636,13 +537,40 @@ plot_ordination(ps0.log, ord.pcoa.wuni, color = "VL_category") +
 
 ```
 
-#################################################
-#                                               #
-# PERMANOVA | ADONIS Group Significance Testing #
-#                                               #
-#################################################
+#Premanov significance testing
 
-Signficance testing of groups. The beginning of this code is a function called *doadonis* that can be run on any data set. You can supply a variable to compare if there is a significant difference between two groups.
+```{r}
+# Set a random seed so that exact results can be reproduced
+set.seed(1000)
+
+# Function to run adonis test on a physeq object and a variable from metadata 
+doadonis <- function(physeq, category) {
+  bdist <- phyloseq::distance(physeq, "bray")
+  col <- as(sample_data(physeq), "data.frame")[ ,category]
+  
+  # Adonis test
+  adonis.bdist <- adonis(bdist ~ col)
+  print("Adonis results:")
+  print(adonis.bdist)
+  
+  # Homogeneity of dispersion test
+  betatax = betadisper(bdist,col)
+  p = permutest(betatax)
+  print("Betadisper results:")
+  print(p$tab)
+}
+
+# Runs Permanov and Homogeneity of dispersion test
+# See ?betadisper for more info
+doadonis(ps0, "Week")
+doadonis(ps0.base, "CD4_category") 
+doadonis(ps0.base, "VL_category")
+
+# VL_category at Week 24 has a p < 0.05 (0.049). Test the influence of the Not collected samples on this by removing them and rerunning
+doadonis(ps0.24.no_vl_nc, "CD4_category")
+doadonis(ps0.24.no_vl_nc, "VL_category")
+
+```
 
 ```{r PERMANOVA}
 # Permanova test to test significance between groups
@@ -688,24 +616,17 @@ doadonis <- function(physeq, category) {
 # Runs Permanov and Homogeneity of dispersion test
 # See ?betadisper for more info
 doadonis(ps0, "Week")
-doadonis(ps0.base, "CD4_category") 
-doadonis(ps0.base, "VL_category")
+doadonis(ps0.base.no_vl_nc, "CD4_category") 
+doadonis(ps0.base.no_vl_nc, "VL_category")
 
 # VL_category at Week 24 has a p < 0.05 (0.049). Test the influence of the Not collected samples on this by removing them and rerunning
 doadonis(ps0.24.no_vl_nc, "CD4_category")
 doadonis(ps0.24.no_vl_nc, "VL_category")
 
 ```
+#Constrained Correspondance Analysis
 
-#######################################
-#                                     #
-# Constrained Correspondance Analysis #
-#                                     #
-#######################################
-
-Constrained ordination using supplied variables. Variable should ideally be selected based on knowledge of the system at hand. In this case, we know CD4 T cell abundance and HIV viral load contribute to the disease pathology observed in the clinic, so we constrain the ordination along these two variables.
-
-```{r CCA, fig.width=8, fig.height=6}
+```{r CCA}
 # Initially, all samples were included in the CCA analysis. However, these results clearly show that in the context of CD4 counts and viral load there are two outliers that may skew interpretation. These are the baseline sample from patient 122214 and the week 24 sample from patient 83771. Patient 122214's baseline sample had an extremely low number of CD4 T-cells and a extremely high viral load. Patient 83771's week 24 sample had a very high viral load.
 # Due to these factors, these samples were removed from the CCA analysis.
 
@@ -827,14 +748,9 @@ anova(cap_ord.base, permutations = 9999)
 anova(cap_ord.24, permutations = 9999) 
 
 ```
+#Differential Abundance Testing - Week
 
-#########################################
-#                                       #
-# Differential Abundance Testing - Week #
-#                                       #
-#########################################
-
-```{r DiffAb Baseline vs Week 24}
+```{r diffab-baseline-vs-week-24}
 # Differential Abundance - Week
 ds.week <- phyloseq_to_deseq2(ps0, ~Week)
 dds.week <- DESeq(ds.week, test="Wald", fitType="local", betaPrior = FALSE) # Worth trying parametric and local fitTypes
@@ -846,14 +762,9 @@ head(sigtab_dds.week) # Empty table
 # There are no taxa differentially abundant at p = 0.1 between Week 0 and Week 24
 
 ```
+#Differential Abundance Testing - Baseline Samples
 
-#####################################################
-#                                                   #
-# Differential Abundance Testing - Baseline Samples #
-#                                                   #
-#####################################################
-
-```{r DiffAb Baseline Samples, fig.width=8, fig.height=6}
+```{r diffab-baseline-samples}
 # Differential Abundance - Baseline ~ CD4 and VL Category
 ds.base <- phyloseq_to_deseq2(ps0.base.no_vl_nc, ~CD4_category) # Change formula to VL_category and rerun to test VL_category
 dds.base <- DESeq(ds.base, test="Wald", fitType="local", betaPrior = FALSE) # Worth trying parametric and local fitTypes
@@ -921,14 +832,9 @@ volcano.base
 ggplotly(volcano.base)
 
 ```
+#Differential Abundance Testing - Week 24 Samples
 
-####################################################
-#                                                  #
-# Differential Abundance Testing - Week 24 Samples #
-#                                                  #
-####################################################
-
-```{r DiffAb Week 24 Samples}
+```{r diffab-week-24-samples}
 # Differential Abundance - 24line ~ CD4 and VL Category
 ds.24 <- phyloseq_to_deseq2(ps0.24.no_vl_nc, ~VL_category) # Change formula to VL_category and rerun to test VL_category
 dds.24 <- DESeq(ds.24, test="Wald", fitType="local", betaPrior = FALSE) # Worth trying parametric and local fitTypes
@@ -942,7 +848,7 @@ head(sigtab_dds.24)
 
 ```
 
-```{r DiffAb Shift, fig.width=8, fig.height=6}
+```{r diffab-shift}
 # Subset samples that were CD4 low at baseline and shifted to high at week 24
 # All of these samples had VL taken at baseline and Week 24, so no concern for samples that are missing VL data
 ps0
@@ -1015,14 +921,9 @@ volcano.shift
 ggplotly(volcano.shift)
 
 ```
+#Random Forest
 
-###################
-##               ##
-## Random Forest ##
-##               ##
-###################
-
-```{r Random Forest, fig.width=8, fig.height=6}
+```{r random-forest}
 # Random Forest
 # Make a dataframe of training data with OTUs as column and samples as rows
 predictors.base <- otu_table(ps0.base)
@@ -1065,39 +966,8 @@ kable(tax_table(ps0.base)[r, ])
 
 Taxon specific barplots from DA taxa identified with DeSeq2.
 
-```{r}
-# Function to create rlog normalized data
-rlog_norm_otus = function(physeq, remove_negs = FALSE) {
-
-
-  physeq_norm = physeq
-  otu_table(physeq_norm) = otu_table(physeq) + 1
-
-  dds = phyloseq_to_deseq2(physeq_norm, ~1)
-  ddr = rlog(dds, blind = TRUE, fitType = "local")
-  counts_norm = as.matrix(assay(ddr))
-
-  if (remove_negs) {
-    counts_norm[counts_norm < 0] = 0
-  }
-
-  otu_table(physeq_norm) = otu_table(counts_norm,taxa_are_rows = TRUE)
-
-  return(physeq_norm)
-
-}
-
-```
-
-```{r DeSeq2 Identified Taxa by Viral Load Category, fig.width=9, fig.height=6}
+```{r ground-truth}
 # Plots of DeSeq2 identified taxa
-
-# Transformations of data with samples removed with no recorded VL
-ps0.base.no_vl_nc.ra <- transform_sample_counts(ps0.base.no_vl_nc, function(x) {x/sum(x)} )
-ps0.base.no_vl_nc.rlog <- rlog_norm_otus(ps0.base.no_vl_nc, remove_negs = TRUE)
-
-ps0.no_vl_nc.ra <- transform_sample_counts(ps0.no_vl_nc, function(x) {x/sum(x)} )
-ps0.no_vl_nc.rlog <- rlog_norm_otus(ps0.no_vl_nc, remove_negs = TRUE)
 
 # Subset DeSeq2 identified taxa
 # Can choose between 2 transformations from above
