@@ -836,7 +836,7 @@ ggplotly(volcano.base)
 
 ```{r diffab-week-24-samples}
 # Differential Abundance - 24line ~ CD4 and VL Category
-ds.24 <- phyloseq_to_deseq2(ps0.24.no_vl_nc, ~VL_category) # Change formula to VL_category and rerun to test VL_category
+ds.24 <- phyloseq_to_deseq2(ps0.24.no_vl_nc, ~CD4_category) # Change formula to VL_category and rerun to test VL_category
 dds.24 <- DESeq(ds.24, test="Wald", fitType="local", betaPrior = FALSE) # Worth trying parametric and local fitTypes
 
 res.dds.24 = results(dds.24, cooksCutoff = FALSE)
