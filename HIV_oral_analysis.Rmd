@@ -1,0 +1,1426 @@
+---
+title: "HIV Oral 16S Amplicon Analysis"
+author: "Scott A. Handley"
+date: "03/16/2017"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+  pdf_document: default
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=6, fig.height=6, fig.path='figures/HIV_oral_16S_', dev='pdf',
+                      warning=FALSE, message=FALSE)
+```
+# Project Description:
+Analysis of 16S rRNA amplicons in oral samples (saliva) collected from HIV infected patients pre-ART treatment and 24 weeks after treatment initiation.
+
+This document describes the analysis of dada2 resolved sequences analysis of dada2 resolved seuqnece variants of 70 samples; 35 samples were collected at the inititation of the study from male HIV positive patients (baseline) and 35 follow-up samples 24 weeks after the inititation of ART.
+
+**Collaborator:**
+Rachel Presti (prestir@wustl.edu)
+
+**Other relevant documents:**
+Preprocessing steps can be viewed in **HIV_oral_preprocessing.Rmd**.
+
+**References:**
+* http://f1000research.com/articles/5-1492/v1
+* http://benjjneb.github.io/dada2/tutorial.htm 
+* Read scaling and ADONIS scripts taken from [michberr]https://github.com/michberr: https://github.com/michberr/MicrobeMiseq/blob/master/R/
+* CCA code adopted from [michberr]https://github.com/michberr: http://deneflab.github.io/MicrobeMiseq/demos/mothur_2_phyloseq.html
+
+
+######################
+#                    #
+# Project Initiation #
+#                    #            
+######################
+
+```{r Set Working Directory, include=FALSE}
+setwd("~/Dropbox/research/AIDS/HIV/presti/HIV_oral/dada2/")
+
+```
+
+```{r, Load Libraries, include=FALSE}
+# Pacakges needed for analysis
+library("ggplot2")
+packageVersion("ggplot2")
+library("phyloseq")
+packageVersion("phyloseq")
+library("magrittr")
+packageVersion("magrittr")
+library("RColorBrewer")
+packageVersion("RColorBrewer")
+library("vegan")
+packageVersion("vegan")
+library("gridExtra")
+packageVersion("gridExtra")
+library("knitr")
+packageVersion("knitr")
+library("dplyr")
+packageVersion("dplyr")
+library("plyr")
+packageVersion("plyr")
+library("DESeq2")
+packageVersion("DeSeq2")
+library("plotly")
+packageVersion("plotly")
+library("data.table")
+packageVersion("data.table")
+library("doParallel")
+packageVersion("doParallel")
+library("randomForest")
+packageVersion("randomForest")
+library("biobroom")
+packageVersion("biobroom")
+
+# Packages being used for testing
+library("caret")
+packageVersion("caret")
+library("nlme")
+packageVersion("nlme")
+
+```
+# Load phyloseq data generated from dada2
+
+```{r Load Data}
+# Load Phyloseq Object generated in HIV_oral_preprocessing.Rmd
+ps0 <- readRDS("./data/HIV_oral.ps0.gg.rds")
+ps0
+
+# Load mapping file
+map <- import_qiime_sample_data("./data/mapping_HIV_oral.txt")
+ps0 <- merge_phyloseq(ps0, map)
+
+# View sample variables
+sample_variables(ps0)
+
+```
+
+#########################################
+#                                       #
+# Factor reclassification  & reordering #
+#                                       #
+#########################################
+
+It is useful to dedicate a section of the analysis to factor editing, reclassification and reordering. This is useful to remove characters that may be part of the mapping file, but unwanted in plots (such as _) and also to refactor levels so they appear in a desired order in plot facets or differential abundance analysis.
+
+```{r}
+# Factor re-ordering, relabelling, etc.
+
+# Remove the _ from Week 24
+sample_data(ps0)$Week <- factor(sample_data(ps0)$Week, labels = c("Baseline", "Week 24"))
+
+# Reorder and relabel CD4 category factors
+sample_data(ps0)$CD4_category
+sample_data(ps0)$CD4_category  <- factor(sample_data(ps0)$CD4_category, levels = c("low", "high"))
+sample_data(ps0)$CD4_category
+sample_data(ps0)$CD4_category <- factor(sample_data(ps0)$CD4_category, labels = c("CD4 Low", "CD4 High"))
+sample_data(ps0)$CD4_category
+
+# Reorder and relabel VL category factors
+sample_data(ps0)$VL_category
+sample_data(ps0)$VL_category  <- factor(sample_data(ps0)$VL_category, levels = c("low", "high", "Not collected"))
+sample_data(ps0)$VL_category
+sample_data(ps0)$VL_category <- factor(sample_data(ps0)$VL_category, labels = c("VL Low", "VL High", "NC"))
+sample_data(ps0)$VL_category
+
+```
+
+#################
+#               #
+# Preprocessing #
+#               #
+#################
+
+This is a series of steps to detect and remove samples that are not useful for analysis. For example, if there are any samples that have 0 or a "few" reads, they can normally be removed. In addition, you can remove specific taxa, for example, I frequently remove samples classified as mitochondira and chloroplast.
+
+A series of plots are also generated to provide a view of the per sample sequencing depth. These can be useful for determining a cut-off to remove samples with low sequence number.
+
+```{r Summary Statistics, fig.height=4, fig.width=8}
+# Preprocessing
+
+# Are their any RSV's in the data with zero reads. If so, how many?
+any(taxa_sums(ps0) == 0)
+sum(taxa_sums(ps0) == 0)
+
+# If there are any, use the code below to prune them away
+# ps0 <- prune_taxa(taxa_sums(ps0) > 0, ps0)
+# any(taxa_sums(ps0) == 0)
+# sum(taxa_sums(ps0) == 0)
+
+# Reserve only sequences that were classified as Bacteria
+# Remove Mitochondria and Chloroplast RSVs
+ps0
+ps0 <- ps0 %>%
+  subset_taxa(
+    Kingdom == "Bacteria" &
+    Family  != "mitochondria" &
+    Class   != "Chloroplast"
+  )
+ps0
+
+# Remove 'NA' Phylum
+ps0 <- subset_taxa(ps0, !is.na(Phylum) & !Phylum %in% c("","uncharacterized"))
+
+# Generate a data.frame of the sorted number of reads and summary of RSVs
+readsumsdf = data.frame(nreads = sort(taxa_sums(ps0), TRUE), sorted = 1:ntaxa(ps0), 
+    type = "RSVs")
+readsumsdf = rbind(readsumsdf, data.frame(nreads = sort(sample_sums(ps0), 
+    TRUE), sorted = 1:nsamples(ps0), type = "Samples"))
+title = "Total number of reads"
+p.reads = ggplot(readsumsdf, aes(x = sorted, y = nreads)) +
+  geom_bar(stat = "identity") +
+  ggtitle(title) +
+  scale_y_log10() +
+  facet_wrap(~type, 1, scales = "free") +
+  ylab("# of Reads")
+
+# Histogram of sample read counts
+# Make a data frame with a column for the read counts of each sample
+sample_sum_df <- data.frame(sum = sample_sums(ps0))
+
+p.reads.hist <- ggplot(sample_sum_df, aes(x = sum)) + 
+  geom_histogram(color = "black", fill = "firebrick3", binwidth = 2500) +
+  ggtitle("Distribution of sample sequencing depth") + 
+  xlab("Read counts") +
+  ylab("# of Samples")
+
+grid.arrange(p.reads, p.reads.hist, ncol = 2)
+
+# The plot on the left labelled RSV's is # of reads per RSV. This is regularaly a long-tail
+# The plot on the right labelled Samples is # of reads per sample. There should be generally simillar numbers per sample, but not infrequent to have a few that are significantly lower than the others
+# The histogram a distribution of the number of samples (y-axis) at bins of sequencing depth (x-axis)
+
+# Some basic summary stats
+smin <- min(sample_sums(ps0))
+smin
+smean <- mean(sample_sums(ps0))
+smean
+smax <- max(sample_sums(ps0))
+smax
+
+# There are quite a few samples with very few sequences in this data
+# Not sure if this is just how oral samples look, or if something wrong with sequencing
+# Removing samples with < 100 sequences as first pass analysis
+# This removes 3 samples
+ps0 <- prune_samples(sample_sums(ps0)>=100, ps0)
+ps0
+min(sample_sums(ps0))
+
+```
+
+########################
+#                      #
+# Prevelance Filtering #
+#                      #
+########################
+
+This is useful for assessing and removing taxa that are infrequently present in samples. It can be useful to remove these samples for statistical tests (e.g. DeSeq2). This may be less useful for assessing alpha and beta diversity, so it is useful to keep one file of all of the data, and one with the low-prevlant samples removed and compare results between the two.
+
+```{r Prevelance Filtering}
+# Prevelance filtering
+# Calculate feature prevelance across the data set
+prevdf <- apply(X = otu_table(ps0), MARGIN = ifelse(taxa_are_rows(ps0), yes = 1, no = 2), FUN = function(x){sum(x > 0)})
+
+# Add taxonomy and total read counts to prevdf
+prevdf <- data.frame(Prevalence = prevdf, TotalAbundance = taxa_sums(ps0), tax_table(ps0))
+
+plyr::ddply(prevdf, "Phylum", function(df1){cbind(mean(df1$Prevalence),sum(df1$Prevalence))})
+# This creates a table of Phylum, their mean abundances across all samples, and the number of samples they were detected in
+
+# Verrrucomicrobia are low prevalence, but keeping in for now as they may covary with a variable
+
+#Prevalence plot
+prevdf1 <- subset(prevdf, Phylum %in% get_taxa_unique(ps0, "Phylum"))
+p.prevdf1 <- ggplot(prevdf1, aes(TotalAbundance, Prevalence / nsamples(ps0),color=Phylum)) +
+  # Include a guess for parameter
+  geom_hline(yintercept = 0.05, alpha = 0.5, linetype = 2) +
+  geom_point(size = 3, alpha = 0.7) +
+  scale_x_log10() +
+  xlab("Total Abundance") + ylab("Prevalence [Frac. Samples]") +
+  facet_wrap(~Phylum) +
+  theme(legend.position="none") +
+  theme(axis.text = element_text(size = 10)) +
+  theme(axis.title = element_text(size = 10)) +
+  theme(strip.text = element_text(size = 10)) +
+  ggtitle("Phylum Prevelence in All Samples")
+p.prevdf1
+
+# Could remove taxa with a prevalence of < 3-5%, but this does tap into some of the proteobacteria which may covary with important variables, so leaving in for now
+
+# Other targets for filtering would be
+# p__GN02, p__SR1, p__Synergisteles, p__Verrumicrobia
+# For now, I am leaving everything in 
+
+# If you wanted to remove you would use the following code
+# filterPhyla = c("p__GN02", "p__SR1", "p__Synergistetes", "p__Verrucomicrobia")
+# ps0.prev <- subset_taxa(ps0, !Phylum %in% filterPhyla)
+# ps0
+# ps0.prev # This would removed 11 taxa from the current data
+
+# The following code would remove taxa that fall below 5% prevelance
+# Leaving in for now, but may return in DeSeq2 analysis doesnt yield any differentially abundant taxa
+# prevalenceThreshold = 0.05 * nsamples(ps0)
+# prevalenceThreshold
+# keepTaxa <- rownames(prevdf1)[(prevdf1$Prevalence >= prevalenceThreshold)]
+# ps0.prev <- prune_taxa(keepTaxa, ps0)
+# ps0 <- ps0.prev
+
+```
+
+########################
+#                      #
+# Data transformations #
+#                      #
+########################
+
+Commonly used data transformations. May or may not be useful for downstream analysis, but are useful to prepare ahead of time and give a could indication of the normality of the data and how various transformations effect the data.
+
+```{r Data transformations, fig.width=8, fig.height=6}
+# You will need to repeat these for the subsets if you want to analyze transformed subsets
+
+# Transform to Realative abundances
+ps0.ra <- transform_sample_counts(ps0, function(OTU) OTU/sum(OTU))
+
+# Transform to Proportional Abundance
+ps0.prop <- transform_sample_counts(ps0, function(x) min(sample_sums(ps0)) * x/sum(x))
+
+# Log transformation moves to a more normal distribution
+ps0.log <- transform_sample_counts(ps0, function(x) log(1 + x))
+
+# View how each function altered count data
+par(mfrow=c(1,4))
+plot(sort(sample_sums(ps0), TRUE), type = "o", main = "Native", ylab = "RSVs", xlab = "Samples")
+plot(sort(sample_sums(ps0.log), TRUE), type = "o", main = "log Transfromed", ylab = "RSVs", xlab = "Samples")
+plot(sort(sample_sums(ps0.ra), TRUE), type = "o", main = "Relative Abundance", ylab = "RSVs", xlab = "Samples")
+plot(sort(sample_sums(ps0.prop), TRUE), type = "o", main = "Proportional Abundance", ylab = "RSVs", xlab = "Samples")
+par(mfrow=c(1,1))
+
+# Visual inspection of log transformation
+p.nolog <- qplot(rowSums(otu_table(ps0))) + ggtitle("Raw Counts") +
+  theme_bw() +
+  theme(axis.text = element_text(size = 20)) +
+  theme(axis.title = element_text(size = 20)) +
+  theme(legend.text = element_text(size = 18)) +
+  xlab("Row Sum") +
+  ylab("# of Samples")
+
+p.log <- qplot(log10(rowSums(otu_table(ps0)))) +
+  ggtitle("log10 transformed counts") +
+  theme_bw() +
+  theme(axis.text = element_text(size = 20)) +
+  theme(axis.title = element_text(size = 20)) +
+  theme(legend.text = element_text(size = 18)) +
+  xlab("Row Sum") +
+  ylab("# of Samples")
+
+grid.arrange(p.nolog, p.log, ncol = 2)
+
+# Note: log transformation reasonably shifts the data to normality and should be used for downstream analysis when appropriate
+
+```
+
+##############
+#            #
+# Subsetting #
+#            #
+##############
+
+Subsetting restructures the data into smaller components for independent analysis. Of note, many plots can be created in ggplot2 using facet_grid or facet_wrap which would alleviate the need to generate these subsets. But other analysis, such as DeSeq2 differential abundance testing benefit from having well-defined data subsets.
+
+Of note, we are subsetting the original data prior to transformation. If you wish to analyze transformed data, you will need to apply appropriate functions to each subset.
+
+```{r Subsetting}
+# Subset. Always subset after taxa/sample filtering
+# Baseline
+ps0.base <- subset_samples(ps0, Week == "Baseline")
+ps0.base
+ps0.base <- prune_samples(sample_sums(ps0.base) > 0, ps0.base)
+ps0.base
+ps0.base.log <- transform_sample_counts(ps0.base, function(x) log(1 + x))
+
+# Week 24
+ps0.24 <- subset_samples(ps0, Week == "Week 24")
+ps0.24
+ps0.24 <- prune_samples(sample_sums(ps0.24) > 0, ps0.24)
+ps0.24
+ps0.24.log <- transform_sample_counts(ps0.24, function(x) log(1 + x))
+
+# Samples CD4 low at baseline
+ps0.CD4.shift <- subset_samples(ps0, CD4_shift_comparison != "exclude")
+ps0.CD4.shift
+ps0.CD4.shift <- prune_samples(sample_sums(ps0.CD4.shift) > 0, ps0.CD4.shift)
+ps0.CD4.shift.log <- transform_sample_counts(ps0.CD4.shift, function(x) log(1 + x))
+
+# Remove Not collected (NC) Viral load samples
+ps0
+ps0.no_vl_nc <- subset_samples(ps0, VL_category != "NC")
+ps0.no_vl_nc
+
+ps0.base
+ps0.base.no_vl_nc <- subset_samples(ps0.base, VL_category != "NC")
+ps0.base.no_vl_nc
+
+ps0.24
+ps0.24.no_vl_nc <- subset_samples(ps0.24, VL_category != "NC")
+ps0.24.no_vl_nc
+
+```
+
+#################
+#               #
+# Taxa Barplots #
+#               #
+#################
+
+Barplots displaying bacterial phyla present in samples. It is useful to filter out very low abundant taxa which are minor components. They contribute very little to the visualization and clutter the bars and legends.
+
+This code will also rename the ggplot2 taxaonomic values (e.g. p__Actinobacteria) to the more simple 'name only' (e.g. Actinobacteria).
+
+```{r Barplots, fig.width=8, fig.height=6}
+# Community composition - Baseline and Week 24 timepoints combined
+
+# Phyla level plots
+# Melt to long format (for ggploting) 
+# Prune out phyla below % in each sample
+
+ps0_phylum <- ps0 %>%
+  tax_glom(taxrank = "Phylum") %>%                     # agglomerate at phylum level
+  transform_sample_counts(function(x) {x/sum(x)} ) %>% # Transform to rel. abundance
+  psmelt() %>%                                         # Melt to long format
+  filter(Abundance > 0.03) %>%                         # Filter out low abundance taxa
+  arrange(Phylum)                                      # Sort data frame alphabetically by phylum
+
+# Convert Sample No to a factor because R is weird sometime
+ps0_phylum$SampleNo <- as.factor(ps0_phylum$SampleNo)
+
+# Write Phylum table
+write.table(ps0_phylum, file = "./results/phylum.txt", sep="\t")
+
+# Plot - Phylum - baseline vs. Week 24
+ggplot(ps0_phylum, aes(x = SampleNo, y = Abundance, fill = Phylum)) + 
+  theme_bw() +
+  geom_bar(stat = "identity") +
+  facet_grid(~Week, scales = "free_x") +
+  ggtitle("Abundant Phylum (> 3%) in All Samples") +
+  ylab("Relative Abundance") +
+  theme(axis.text.x = element_blank()) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank()) +
+  scale_fill_manual(values = c('#1b9e77','#d95f02','#7570b3','#e7298a','#66a61e','#e6ab02','#a6761d','#666666'))
+
+```
+
+#############################
+#                           #
+# Sample Outlier Evaluation #
+#                           #
+#############################
+
+An MDS plot of Bray-Curtis dissimilarity can be useful to assess if there are obvious sample outliers in the data. If outliers are suspected based on this plot one can consider their removal. Removal of outliers should be judge carefully.
+
+```{r Sample Outlier Evaluation, fig.width=8, fig.height=6}
+# Outlier evaluation
+out.bray.log <- ordinate(ps0.log, method = "MDS", distance = "bray")
+p.MDS.outlier <- plot_ordination(ps0.log, out.bray.log, color = "Week", shape ="VL_category") +
+  theme_bw() +
+  geom_point(size = 5) +
+  ggtitle("MDS of Bray Distances \n Outlier Evaluation \nlog transformed data") +
+  geom_text(aes(label = patient_id), size = 4, check_overlap = FALSE, vjust = -1) +
+  facet_wrap(~Week) +
+  theme(plot.title = element_text(hjust = 0.5, size = 12)) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12))
+p.MDS.outlier
+
+# No obvious sample outliers. Data just seems to be highly variable
+
+```
+
+############################
+#                          #
+# Alpha Diversity Analysis #
+#                          #
+############################
+
+Analysis of the numbers of taxa detected (Richness) and their diversity (Shannon Diversity). Other measures (Simpsons, Chao1, ACE, etc.) can also be calculated by changing the measures argument. See ?plot_richness for details.
+
+A table of alpha diversity measures is also created which can then be imported into Excel or Prism for further analysis.
+
+```{r Alpha Diversity Analysis, fig.width=8, fig.height=6}
+# Richness plots | Requires intergers so can't be performed on transformed data
+p.rich <- plot_richness(ps0, measures=c("Observed"), col = "CD4_category", sortby = "Observed") +
+  theme_bw() +
+  facet_grid(. ~ Week, scales="free_x") +
+  geom_point(size=4, alpha=0.7) +
+  geom_point(colour = "grey90", size = 0.5) +
+  theme(axis.text.x = element_blank()) +
+  labs(y="Richness") +
+  # ggtitle("Richness") +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12))
+
+p.shannon <- plot_richness(ps0, measures=c("Shannon"), col = "CD4_category", sortby = "Shannon") +
+  theme_bw() +
+  facet_grid(. ~ Week, scales="free_x") +
+  geom_point(size=4, alpha=0.7) +
+  geom_point(colour = "grey90", size = 0.5) +
+  theme(axis.text.x = element_blank()) +
+  labs(y="Shannon Diversity") +
+  # ggtitle("Shannon Diversity") +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12))
+
+grid.arrange(p.rich, p.shannon, nrow = 2)
+
+# Export table for use in prism
+est.rich <- estimate_richness(ps0.no_vl_nc, measures = c("Observed", "Shannon"))
+
+# Make new data table combining richness with sample data
+ps0.rich <- cbind(sample_data(ps0.no_vl_nc), est.rich)
+head(ps0.rich)
+
+write.table(ps0.rich, file = "./results/alpha_diversity.txt", sep = "\t")
+
+# Boxplots - CD4 category - Richness
+p.box.rich.cd4 <- ggplot(ps0.rich, aes(CD4_category, Observed)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1) +
+  facet_grid(~Week) +
+  theme_bw() +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank()) +
+  theme(legend.text = element_text(size = 12))
+
+p.box.shannon.cd4 <- ggplot(ps0.rich, aes(CD4_category, Shannon)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1) +
+  facet_grid(~Week) +
+  theme_bw() +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(axis.title.x = element_blank()) +
+  theme(legend.text = element_text(size = 12))
+
+grid.arrange(p.box.rich.cd4, p.box.shannon.cd4, nrow = 2)
+
+# Boxplots - VL category - Richness
+p.box.rich.vl <- ggplot(ps0.rich, aes(VL_category, Observed)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1) +
+  facet_grid(~Week) +
+  theme_bw() +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank()) +
+  theme(legend.text = element_text(size = 12))
+
+p.box.shannon.vl <- ggplot(ps0.rich, aes(VL_category, Shannon)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1) +
+  facet_grid(~Week) +
+  theme_bw() +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(axis.title.x = element_blank()) +
+  theme(legend.text = element_text(size = 12))
+
+grid.arrange(p.box.rich.vl, p.box.shannon.vl, nrow = 2)
+
+# Within week comparisons between groups and comparisons across time-points did not identify any statistically significant differences (t-test) between groups
+
+```
+
+###########################
+#                         #
+# Beta Diversity Analysis #
+#                         #
+###########################
+
+Analysis of per sample community composition relationships. This is an exploratory process. One should consider what each distance measure means in the context of their data set. It is good practice to:
+
+1. Compare several distance measures
+2. Explore several PC axis
+
+```{r Beta Diversity Analysis, fig.width=8, fig.height=8}
+#Ordination Analysis
+
+# Multiple methods - All samples
+# Performed on log transformed data (see notes above)
+ord.pcoa.uni <- ordinate(ps0.log, method = "PCoA", distance = "unifrac")
+ord.pcoa.wuni <- ordinate(ps0.log, method = "PCoA", distance = "wunifrac")
+ord.dpcoa <- ordinate(ps0.log, method = "DPCoA")
+
+# Plot - Week
+p.pcoa.uni.week <- plot_ordination(ps0.log, ord.pcoa.uni, color = "CD4_category", shape = "VL_category") +
+  theme_bw() +
+  geom_point(size=5, alpha = 0.7) +
+  scale_color_brewer(palette = "Dark2") +
+  geom_point(colour = "grey50", size = 1.5) +
+  facet_grid(~ Week) +
+  ggtitle("PCoA | Unifrac") +
+  theme(plot.title = element_text(hjust = 0.5, size = 12)) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+p.pcoa.wuni.week <- plot_ordination(ps0.log, ord.pcoa.wuni, color = "CD4_category", shape = "VL_category") +
+  theme_bw() +
+  geom_point(size=5, alpha = 0.7) +
+  ggtitle("PCoA | wUnifrac") +
+  scale_color_brewer(palette = "Dark2") +
+  geom_point(colour = "grey50", size = 1.5) +
+  facet_grid(~ Week) +
+  theme(plot.title = element_text(hjust = 0.5, size = 12)) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+p.dpcoa.week <- plot_ordination(ps0.log, ord.dpcoa, color = "CD4_category", shape = "VL_category") +
+  theme_bw() +
+  geom_point(size=5, alpha = 0.7) +
+  scale_color_brewer(palette = "Dark2") +
+  geom_point(colour = "grey50", size = 1.5) +
+  ggtitle("DPCoA") +
+  facet_grid(~ Week) +
+  theme(plot.title = element_text(hjust = 0.5, size = 12)) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+grid.arrange(p.pcoa.uni.week, p.pcoa.wuni.week, p.dpcoa.week, nrow = 3)
+
+# All distance measures show most of variance is across PC1. Less variance is explained in PC2
+# Both wUnifrac and DPCoA explain > 30% of the variance in PC1. No reason so far to pick one over the other
+# Seperation by time, CD4 category or VL category are not observed using any of the distance measures
+
+```
+
+```{r Publication PcoA, fig.width=8, fig.height=8}
+#  Single PCoA lot for presentation / publication
+plot_ordination(ps0.log, ord.pcoa.wuni, color = "VL_category") +
+  theme_bw() +
+  geom_point(size=4, alpha = 0.7) +
+  scale_color_brewer(palette = "Dark2") +
+  geom_point(colour = "grey50", size = 1.5) +
+  # facet_grid(~ Week) +
+  theme(plot.title = element_text(hjust = 0.5, size = 18)) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(plot.title = element_text(hjust = 0.5))  +
+  geom_line(aes(group = patient_id), color = "black") +
+  ggtitle("wUNIFRAC PCoA \n Samples CD4 Low at Baseline") +
+  stat_ellipse(type = "norm")
+
+```
+
+#################################################
+#                                               #
+# PERMANOVA | ADONIS Group Significance Testing #
+#                                               #
+#################################################
+
+Signficance testing of groups. The beginning of this code is a function called *doadonis* that can be run on any data set. You can supply a variable to compare if there is a significant difference between two groups.
+
+```{r PERMANOVA}
+# Permanova test to test significance between groups
+
+set.seed(1000)
+
+# Some recommend to scale to equivalent sample depth so this code is included
+# Should test both scaled and unscaled
+# Read scaling function
+scale_reads <- function(physeq, n) {
+  physeq.scale <-
+    transform_sample_counts(physeq, function(x) {
+      (n * x/sum(x))
+    })
+  otu_table(physeq.scale) <- floor(otu_table(physeq.scale))
+  physeq.scale <- prune_taxa(taxa_sums(physeq.scale) > 0, physeq.scale)
+  return(physeq.scale)
+}
+
+min.samplesums <- min(sample_sums(ps0)) # Find minimum sample size
+ps0_scaled <- scale_reads(ps0, min.samplesums) # Scale to minimum sample size
+
+##### ADONIS ###########
+
+# Function to run adonis test on a physeq object and a variable from metadata 
+doadonis <- function(physeq, category) {
+  physeq.scale <- scale_reads(physeq, min(sample_sums(physeq)))
+  bdist <- phyloseq::distance(physeq.scale, "bray")
+  col <- as(sample_data(physeq), "data.frame")[ ,category]
+  
+  # Adonis test
+  adonis.bdist <- adonis(bdist ~ col)
+  print("Adonis results:")
+  print(adonis.bdist)
+  
+  # Homogeneity of dispersion test
+  betatax = betadisper(bdist,col)
+  p = permutest(betatax)
+  print("Betadisper results:")
+  print(p$tab)
+}
+
+# Runs Permanov and Homogeneity of dispersion test
+# See ?betadisper for more info
+doadonis(ps0, "Week")
+doadonis(ps0.base, "CD4_category") 
+doadonis(ps0.base, "VL_category")
+
+# VL_category at Week 24 has a p < 0.05 (0.049). Test the influence of the Not collected samples on this by removing them and rerunning
+doadonis(ps0.24.no_vl_nc, "CD4_category")
+doadonis(ps0.24.no_vl_nc, "VL_category")
+
+```
+
+#######################################
+#                                     #
+# Constrained Correspondance Analysis #
+#                                     #
+#######################################
+
+Constrained ordination using supplied variables. Variable should ideally be selected based on knowledge of the system at hand. In this case, we know CD4 T cell abundance and HIV viral load contribute to the disease pathology observed in the clinic, so we constrain the ordination along these two variables.
+
+```{r CCA, fig.width=8, fig.height=6}
+# Initially, all samples were included in the CCA analysis. However, these results clearly show that in the context of CD4 counts and viral load there are two outliers that may skew interpretation. These are the baseline sample from patient 122214 and the week 24 sample from patient 83771. Patient 122214's baseline sample had an extremely low number of CD4 T-cells and a extremely high viral load. Patient 83771's week 24 sample had a very high viral load.
+# Due to these factors, these samples were removed from the CCA analysis.
+
+ps0
+ps0_cca_out_rm <- ps0 %>%
+  subset_samples(
+    SampleID != "16750" &
+    SampleID != "16767"
+  )
+ps0_cca_out_rm
+
+# Constrained Ordination - Baseline
+
+# Remove data points with missing metadata
+ps0_not_na <- ps0_cca_out_rm%>%
+  subset_samples(
+    !is.na(CD4) &
+    !is.na(VL)
+      )
+
+# Subset and log transforme not_na samples
+ps0_not_na.log <- transform_sample_counts(ps0_not_na, function(x) log(1 + x))
+ps0.not_na.base <- subset_samples(ps0_not_na.log, Week == "Baseline")
+ps0.not_na.base
+ps0.not_na.24 <- subset_samples(ps0_not_na.log, Week == "Week 24")
+ps0.not_na.24
+
+# Calculate distance
+bray_not_na.base <- phyloseq::distance(physeq = ps0.not_na.base, method = "unifrac")
+bray_not_na.24 <- phyloseq::distance(physeq = ps0.not_na.24, method = "unifrac")
+
+# CAP Ordinate
+cap_ord.base <- ordinate(ps0.not_na.base, method = "CAP", distance = bray_not_na.base, formula = ~VL + CD4)
+cap_ord.24 <- ordinate(ps0.not_na.24, method = "CAP", distance = bray_not_na.24, formula = ~VL + CD4)
+
+# CAP plot - Baseline
+cap_plot.base <- plot_ordination(ps0.not_na.base, ordination = cap_ord.base) +
+  theme_bw() +
+  geom_point(aes(colour = CD4_category), alpha = 0.7, size = 4) +
+  geom_point(colour = "grey50", size = 1.5) +
+  scale_color_brewer(palette = "Dark2") +
+  ggtitle("CCA ~ CD4 T Cells + Viral Load \n Baseline") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(colour = "CD4 Category")
+  #geom_text(aes(label = patient_id), size = 3, check_overlap = TRUE, vjust = 2)
+
+# CAP plot - Week 24
+cap_plot.24 <- plot_ordination(ps0.not_na.24, ordination = cap_ord.24) +
+  theme_bw() +
+  geom_point(aes(colour = CD4_category), alpha = 0.7, size = 4) +
+  geom_point(colour = "grey50", size = 1.5) +
+  scale_color_brewer(palette = "Dark2") +
+  ggtitle("CCA ~ CD4 T Cells + Viral Load \n Week 24") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(colour = "CD4 Category")
+  # geom_text(aes(label = patient_id), size = 3, check_overlap = TRUE, vjust = 2)
+
+# Now add the environmental variables as arrows
+arrowmat.base <- vegan::scores(cap_ord.base, display = "bp")
+arrowmat.24 <- vegan::scores(cap_ord.24, display = "bp")
+
+# Add labels, make a data.frame
+arrowdf.base <- data.frame(labels = rownames(arrowmat.base), arrowmat.base)
+arrowdf.24 <- data.frame(labels = rownames(arrowmat.24), arrowmat.24)
+
+# Define the arrow aesthetic mapping
+arrow_map <- aes(xend = CAP1, 
+    yend = CAP2, 
+    x = 0, 
+    y = 0, 
+    shape = NULL, 
+    color = NULL, 
+    label = labels)
+
+label_map <- aes(x = 1.3 * CAP1, 
+    y = 1.3 * CAP2, 
+    shape = NULL, 
+    color = NULL, 
+    label = labels)
+
+arrowhead = arrow(length = unit(0.02, "npc"))
+
+# Make a new graphic
+# CAP plot with arrows - baseline
+cap_plot.base_arrows <- cap_plot.base + 
+  geom_segment(
+    mapping = arrow_map, 
+    size = .5, 
+    data = arrowdf.base, 
+    color = "gray", 
+    arrow = arrowhead
+  ) + 
+  geom_text(
+    mapping = label_map, 
+    size = 4,  
+    data = arrowdf.base, 
+    show.legend = FALSE
+  )
+
+# CAP plot with arrows - Week 24
+cap_plot.24_arrows <- cap_plot.24 + 
+  geom_segment(
+    mapping = arrow_map, 
+    size = .5, 
+    data = arrowdf.24, 
+    color = "gray", 
+    arrow = arrowhead
+  ) + 
+  geom_text(
+    mapping = label_map, 
+    size = 4,  
+    data = arrowdf.24, 
+    show.legend = FALSE
+  )
+
+grid.arrange(cap_plot.base_arrows, cap_plot.24_arrows, ncol = 2)
+
+anova(cap_ord.base, permutations = 9999)
+anova(cap_ord.24, permutations = 9999) 
+
+```
+
+#########################################
+#                                       #
+# Differential Abundance Testing - Week #
+#                                       #
+#########################################
+
+```{r DiffAb Baseline vs Week 24}
+# Differential Abundance - Week
+ds.week <- phyloseq_to_deseq2(ps0, ~Week)
+dds.week <- DESeq(ds.week, test="Wald", fitType="local", betaPrior = FALSE) # Worth trying parametric and local fitTypes
+res.dds.week = results(dds.week, cooksCutoff = FALSE)
+alpha = 0.1 # Note: this is higher to try and allow even weak effect size taxa through
+sigtab_dds.week = res.dds.week[which(res.dds.week$padj < alpha), ]
+head(sigtab_dds.week) # Empty table
+
+# There are no taxa differentially abundant at p = 0.1 between Week 0 and Week 24
+
+```
+
+#####################################################
+#                                                   #
+# Differential Abundance Testing - Baseline Samples #
+#                                                   #
+#####################################################
+
+```{r DiffAb Baseline Samples, fig.width=8, fig.height=6}
+# Differential Abundance - Baseline ~ CD4 and VL Category
+ds.base <- phyloseq_to_deseq2(ps0.base.no_vl_nc, ~CD4_category) # Change formula to VL_category and rerun to test VL_category
+dds.base <- DESeq(ds.base, test="Wald", fitType="local", betaPrior = FALSE) # Worth trying parametric and local fitTypes
+
+# Tabulate and write results
+alpha = 0.1
+res.dds.base = results(dds.base, cooksCutoff = FALSE)
+sigtab_dds.base = res.dds.base[which(res.dds.base$padj < alpha), ]
+sigtab_dds.base = cbind(as(sigtab_dds.base, "data.frame"), as(tax_table(ps0.base.no_vl_nc)[rownames(sigtab_dds.base), ], "matrix"))
+head(sigtab_dds.base)
+write.table(sigtab_dds.base, file="./results/deseq_results_base_CD4.txt", sep = "\t") # Change filename to save results to appropriate file
+
+x.ds.base = tapply(sigtab_dds.base$log2FoldChange, sigtab_dds.base$Family, function(x) max(x))
+x.ds.base = sort(x.ds.base, TRUE)
+sigtab_dds.base$Species = factor(as.character(sigtab_dds.base$Family), levels=names(x.ds.base))
+p.deseq.base <- ggplot(sigtab_dds.base, aes(x=Family, y=log2FoldChange, color=Genus)) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  geom_point(size=5, alpha = 0.7) + 
+  theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) +
+  ggtitle("Taxa Differentially Associated by XXXX Category \n Baseline") + # Change title if variable changed
+  geom_hline(yintercept = 0, lwd=1.5)
+p.deseq.base
+
+# Quick check of factor levels
+mcols(res.dds.base, use.names = TRUE)
+
+# Create volcano plots of signficant results
+# Prepare to join results data.table and taxonomy table
+# Baseline
+resdt.base = data.table(as(results(dds.base, cooksCutoff = FALSE), "data.frame"),
+                   keep.rownames = TRUE)
+setnames(resdt.base, "rn", "OTU")
+taxdt.base = data.table(data.frame(as(tax_table(ps0.base), "matrix")), keep.rownames = TRUE)
+setnames(taxdt.base, "rn", "OTU")
+
+# Join results data.table and taxonomy table
+setkeyv(taxdt.base, "OTU")
+setkeyv(resdt.base, "OTU")
+resdt.base <- taxdt.base[resdt.base]
+resdt.base
+resdt.base[, Significant := padj < alpha]
+resdt.base[!is.na(Significant)]
+resdt.base
+
+volcano.base = ggplot(
+  data = resdt.base[!is.na(Significant)][(pvalue < 1)],
+  mapping = aes(x = log2FoldChange,
+                y = -log10(pvalue),
+                color = Phylum,
+                label = OTU, label1 = Genus)) +
+  theme_bw() +
+  geom_point() + 
+  geom_point(data = resdt.base[(Significant)], size = 7, alpha = 0.7) + 
+  # geom_text(data = resdt.base[(Significant)], mapping = aes(label = paste("Genus:", Genus)), color = "black", size = 3) +
+  theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) +
+  geom_hline(yintercept = -log10(alpha)) +
+  ggtitle("DESeq2 Negative Binomial Test Volcano Plot\nBaseline Samples") +
+  theme(axis.title = element_text(size=12)) +
+  theme(axis.text = element_text(size=12)) +
+  theme(legend.text = element_text(size=12)) +
+  geom_vline(xintercept = 0, lty = 2)
+volcano.base
+
+ggplotly(volcano.base)
+
+```
+
+####################################################
+#                                                  #
+# Differential Abundance Testing - Week 24 Samples #
+#                                                  #
+####################################################
+
+```{r DiffAb Week 24 Samples}
+# Differential Abundance - 24line ~ CD4 and VL Category
+ds.24 <- phyloseq_to_deseq2(ps0.24.no_vl_nc, ~VL_category) # Change formula to VL_category and rerun to test VL_category
+dds.24 <- DESeq(ds.24, test="Wald", fitType="local", betaPrior = FALSE) # Worth trying parametric and local fitTypes
+
+res.dds.24 = results(dds.24, cooksCutoff = FALSE)
+alpha = 0.1
+sigtab_dds.24 = res.dds.24[which(res.dds.24$padj < alpha), ]
+head(sigtab_dds.24)
+
+# There are no taxa differentially abundant at p = 0.1 between CD4 or VL categories at Week 24
+
+```
+
+```{r DiffAb Shift, fig.width=8, fig.height=6}
+# Subset samples that were CD4 low at baseline and shifted to high at week 24
+# All of these samples had VL taken at baseline and Week 24, so no concern for samples that are missing VL data
+ps0
+ps0.shift <- subset_samples(ps0, low_CD4_baseline_24wk_sample != "No")
+ps0.shift
+sample_data(ps0.shift)$low_CD4_baseline_24wk_sample
+
+# Differential Abundance - shiftline ~ CD4 and VL Category
+ds.shift <- phyloseq_to_deseq2(ps0.shift, ~low_CD4_baseline_24wk_sample) # Change formula to VL_category and rerun to test VL_category
+dds.shift <- DESeq(ds.shift, test="Wald", fitType="local", betaPrior = FALSE) # Worth trying parametric and local fitTypes
+
+res.dds.shift = results(dds.shift, cooksCutoff = FALSE)
+alpha = 0.1
+sigtab_dds.shift = res.dds.shift[which(res.dds.shift$padj < alpha), ]
+sigtab_dds.shift = cbind(as(sigtab_dds.shift, "data.frame"), as(tax_table(ps0.shift)[rownames(sigtab_dds.shift), ], "matrix"))
+head(sigtab_dds.shift)
+write.table(sigtab_dds.shift, file="./results/deseq_results_shift.txt", sep = "\t") # Change filename to save results to appropriate file
+
+x.ds.shift = tapply(sigtab_dds.shift$log2FoldChange, sigtab_dds.shift$Family, function(x) max(x))
+x.ds.shift = sort(x.ds.shift, TRUE)
+sigtab_dds.shift$Species = factor(as.character(sigtab_dds.shift$Family), levels=names(x.ds.shift))
+p.deseq.shift <- ggplot(sigtab_dds.shift, aes(x=Family, y=log2FoldChange, color=Genus)) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  geom_point(size=5, alpha = 0.7) + 
+  theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) +
+  ggtitle("Taxa Differentially Associated by XXXX Category \n shiftline") + # Change title if variable changed
+  geom_hline(yintercept = 0, lwd=1.5)
+p.deseq.shift
+
+# Quick check of factor levels
+mcols(res.dds.shift, use.names = TRUE)
+
+# Create volcano plots of signficant results
+# Prepare to join results data.table and taxonomy table
+# shiftline
+resdt.shift = data.table(as(results(dds.shift, cooksCutoff = FALSE), "data.frame"),
+                   keep.rownames = TRUE)
+setnames(resdt.shift, "rn", "OTU")
+taxdt.shift = data.table(data.frame(as(tax_table(ps0.shift), "matrix")), keep.rownames = TRUE)
+setnames(taxdt.shift, "rn", "OTU")
+
+# Join results data.table and taxonomy table
+setkeyv(taxdt.shift, "OTU")
+setkeyv(resdt.shift, "OTU")
+resdt.shift <- taxdt.shift[resdt.shift]
+resdt.shift
+resdt.shift[, Significant := padj < alpha]
+resdt.shift[!is.na(Significant)]
+resdt.shift
+
+volcano.shift = ggplot(
+  data = resdt.shift[!is.na(Significant)][(pvalue < 0.9)],
+  mapping = aes(x = log2FoldChange,
+                y = -log10(pvalue),
+                color = Phylum,
+                label = OTU, label1 = Genus)) +
+  theme_bw() +
+  geom_point() + 
+  geom_point(data = resdt.shift[(Significant)], size = 7, alpha = 0.7) + 
+  # geom_text(data = resdt.shift[(Significant)], mapping = aes(label = paste("Genus:", Genus)), color = "black", size = 3) +
+  theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) +
+  geom_hline(yintercept = -log10(alpha)) +
+  ggtitle("DESeq2 Negative Binomial Test Volcano Plot\nshiftline Samples") +
+  theme(axis.title = element_text(size=12)) +
+  theme(axis.text = element_text(size=12)) +
+  theme(legend.text = element_text(size=12))
+volcano.shift
+
+ggplotly(volcano.shift)
+
+```
+
+###################
+##               ##
+## Random Forest ##
+##               ##
+###################
+
+```{r Random Forest, fig.width=8, fig.height=6}
+# Random Forest
+# Make a dataframe of training data with OTUs as column and samples as rows
+predictors.base <- otu_table(ps0.base)
+dim(predictors.base)
+
+# Make one column for our outcome/response variable 
+response.base <- as.factor(sample_data(ps0.base)$CD4_category)
+
+# Combine them into 1 data frame
+rf.data <- data.frame(response.base, predictors.base)
+
+# Results
+set.seed(2)
+classify <- randomForest(response.base~., data = rf.data, ntree = 100)
+print(classify)
+
+# Make a data frame with predictor names and their importance
+imp <- importance(classify)
+imp <- data.frame(predictors = rownames(imp), imp)
+
+# Order the predictor levels by importance
+imp.sort <- arrange(imp, desc(MeanDecreaseGini))
+imp.sort$predictors <- factor(imp.sort$predictors, levels = imp.sort$predictors)
+
+# Select the top 10 predictors
+imp.20 <- imp.sort[1:20, ]
+
+# ggplot
+ggplot(imp.20, aes(x = predictors, y = MeanDecreaseGini)) +
+  geom_bar(stat = "identity", fill = "indianred") +
+  theme(axis.text.x = element_blank())
+  coord_flip()
+
+# What are those OTUs?
+otunames <- imp.20$predictors
+r <- rownames(tax_table(ps0.base)) %in% otunames
+kable(tax_table(ps0.base)[r, ])
+
+```
+
+Taxon specific barplots from DA taxa identified with DeSeq2.
+
+```{r}
+# Function to create rlog normalized data
+rlog_norm_otus = function(physeq, remove_negs = FALSE) {
+
+
+  physeq_norm = physeq
+  otu_table(physeq_norm) = otu_table(physeq) + 1
+
+  dds = phyloseq_to_deseq2(physeq_norm, ~1)
+  ddr = rlog(dds, blind = TRUE, fitType = "local")
+  counts_norm = as.matrix(assay(ddr))
+
+  if (remove_negs) {
+    counts_norm[counts_norm < 0] = 0
+  }
+
+  otu_table(physeq_norm) = otu_table(counts_norm,taxa_are_rows = TRUE)
+
+  return(physeq_norm)
+
+}
+
+```
+
+```{r DeSeq2 Identified Taxa by Viral Load Category, fig.width=9, fig.height=6}
+# Plots of DeSeq2 identified taxa
+
+# Transformations of data with samples removed with no recorded VL
+ps0.base.no_vl_nc.ra <- transform_sample_counts(ps0.base.no_vl_nc, function(x) {x/sum(x)} )
+ps0.base.no_vl_nc.rlog <- rlog_norm_otus(ps0.base.no_vl_nc, remove_negs = TRUE)
+
+ps0.no_vl_nc.ra <- transform_sample_counts(ps0.no_vl_nc, function(x) {x/sum(x)} )
+ps0.no_vl_nc.rlog <- rlog_norm_otus(ps0.no_vl_nc, remove_negs = TRUE)
+
+# Subset DeSeq2 identified taxa
+# Can choose between 2 transformations from above
+# Typically go with relative abundances as these are more familiar to readers
+
+# Genus = Capnocytophaga
+ps0_Capnocytophaga <- ps0.no_vl_nc.ra %>%
+    subset_taxa(Genus == "Capnocytophaga") %>%
+    psmelt() 
+
+# Genus = Aggregatibacter
+ps0_Aggregatibacter <- ps0.no_vl_nc.ra %>%
+  subset_taxa(Genus == "Aggregatibacter") %>%
+  psmelt()
+
+# Family = [Paraprevotellaceae]
+ps0_Paraprevotellaceae <- ps0.no_vl_nc.ra %>%
+  subset_taxa(Family == "[Paraprevotellaceae]") %>%
+  psmelt()
+
+# Genus = Dialister
+ps0_Dialister <- ps0.no_vl_nc.ra %>%
+  subset_taxa(Genus == "Dialister") %>%
+  psmelt()
+
+# Genus = Fusobacterium
+ps0_Fusobacterium <- ps0.no_vl_nc.ra %>%
+  subset_taxa(Genus == "Fusobacterium") %>%
+  psmelt()
+
+# Genus = Veillonella
+ps0_Veillonella <- ps0.no_vl_nc.ra %>%
+  subset_taxa(Genus == "Veillonella") %>%
+  psmelt()
+
+# Genus = Streptococcus
+ps0_Streptococcus <- ps0.no_vl_nc.ra %>%
+  subset_taxa(Genus == "Streptococcus") %>%
+  psmelt()
+
+# Genus = Neisseria
+ps0_Neisseria <- ps0.no_vl_nc.ra %>%
+  subset_taxa(Genus == "Neisseria") %>%
+  psmelt()
+
+# Genus = Prevotella
+ps0_Prevotella <- ps0.no_vl_nc.ra %>%
+  subset_taxa(Genus == "Prevotella") %>%
+  psmelt()
+  
+# Capnocytophaga violin-point plots
+p.Capnocytophaga.VL <- ggplot(ps0_Capnocytophaga, aes(x = VL_category, y = Abundance, fill = Genus)) + 
+  theme_bw() +
+  scale_size_continuous(range = c(2, 9)) +
+  geom_violin(na.rm = TRUE, alpha = 0.5, fill = "grey", draw_quantiles = TRUE) +
+  facet_grid(Week~Species, scales = "free_x", space = "free_x") +
+  scale_y_log10() +
+  geom_point(mapping = aes(size = sqrt(Abundance), color = Species), alpha = 0.4, na.rm = TRUE) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank())
+p.Capnocytophaga.VL
+
+# Aggregatibacter violin-point plots
+p.Aggregatibacter.VL <- ggplot(ps0_Aggregatibacter, aes(x = VL_category, y = Abundance, fill = Genus)) + 
+  theme_bw() +
+  scale_size_continuous(range = c(2, 9)) +
+  geom_violin(na.rm = TRUE, alpha = 0.5, fill = "grey", draw_quantiles = TRUE) +
+  facet_grid(Week~Species, scales = "free_x", space = "free_x") +
+  scale_y_log10() +
+  geom_point(mapping = aes(size = sqrt(Abundance), color = Species), alpha = 0.4, na.rm = TRUE) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank())
+p.Aggregatibacter.VL
+
+# [Paraprevotellaceae] violin-point plots
+p.Paraprevotellaceae.VL <- ggplot(ps0_Paraprevotellaceae, aes(x = VL_category, y = Abundance, fill = Genus)) + 
+  theme_bw() +
+  scale_size_continuous(range = c(2, 9)) +
+  geom_violin(na.rm = TRUE, alpha = 0.5, fill = "grey", draw_quantiles = TRUE) +
+  facet_grid(Week~Species, scales = "free_x", space = "free_x") +
+  scale_y_log10() +
+  geom_point(mapping = aes(size = sqrt(Abundance), color = Species), alpha = 0.4, na.rm = TRUE) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank())
+p.Paraprevotellaceae.VL
+
+# Dialister violin-point plots
+p.Dialister.VL <- ggplot(ps0_Dialister, aes(x = VL_category, y = Abundance, fill = Genus)) + 
+  theme_bw() +
+  scale_size_continuous(range = c(2, 9)) +
+  geom_violin(na.rm = TRUE, alpha = 0.5, fill = "grey", draw_quantiles = TRUE) +
+  facet_grid(Week~Species, scales = "free_x", space = "free_x") +
+  scale_y_log10() +
+  geom_point(mapping = aes(size = sqrt(Abundance), color = Species), alpha = 0.4, na.rm = TRUE) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank())
+p.Dialister.VL
+
+# Fusobacterium violin-point plots
+p.Fusobacterium.VL <- ggplot(ps0_Fusobacterium, aes(x = VL_category, y = Abundance, fill = Genus)) + 
+  theme_bw() +
+  scale_size_continuous(range = c(2, 9)) +
+  geom_violin(na.rm = TRUE, alpha = 0.5, fill = "grey", draw_quantiles = TRUE) +
+  facet_grid(Week~Species, scales = "free_x", space = "free_x") +
+  scale_y_log10() +
+  geom_point(mapping = aes(size = sqrt(Abundance), color = Species), alpha = 0.4, na.rm = TRUE) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank())
+p.Fusobacterium.VL
+
+# Veillonella violin-point plots
+p.Veillonella.VL <- ggplot(ps0_Veillonella, aes(x = VL_category, y = Abundance, fill = Genus)) + 
+  theme_bw() +
+  scale_size_continuous(range = c(2, 9)) +
+  geom_violin(na.rm = TRUE, alpha = 0.5, fill = "grey") +
+  facet_grid(Week~Species, scales = "free_x", space = "free_x") +
+  scale_y_log10() +
+  geom_point(mapping = aes(size = sqrt(Abundance), color = Species), alpha = 0.4, na.rm = TRUE) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank())
+p.Veillonella.VL
+
+# Streptococcus violin-point plots
+p.Streptococcus.VL <- ggplot(ps0_Streptococcus, aes(x = VL_category, y = Abundance, fill = Genus)) + 
+  theme_bw() +
+  scale_size_continuous(range = c(2, 9)) +
+  geom_violin(na.rm = TRUE, alpha = 0.5, fill = "grey", draw_quantiles = FALSE, trim = FALSE) +
+  facet_grid(Week~Species, scales = "free_x", space = "free_x") +
+  scale_y_log10() +
+  geom_point(mapping = aes(size = sqrt(Abundance), color = Species), alpha = 0.4, na.rm = TRUE) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank())
+p.Streptococcus.VL
+
+# Neisseria violin-point plots
+p.Neisseria.VL <- ggplot(ps0_Neisseria, aes(x = VL_category, y = Abundance, fill = Genus)) + 
+  theme_bw() +
+  scale_size_continuous(range = c(2, 9)) +
+  geom_violin(na.rm = TRUE, alpha = 0.5, fill = "grey", draw_quantiles = FALSE, trim = FALSE) +
+  facet_grid(Week~Species, scales = "free_x", space = "free_x") +
+  scale_y_log10() +
+  geom_point(mapping = aes(size = sqrt(Abundance), color = Species), alpha = 0.4, na.rm = TRUE) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank())
+p.Neisseria.VL
+
+# Prevotella violin-point plots
+p.Prevotella.VL <- ggplot(ps0_Prevotella, aes(x = VL_category, y = Abundance, fill = Genus)) + 
+  theme_bw() +
+  scale_size_continuous(range = c(2, 9)) +
+  geom_violin(na.rm = TRUE, alpha = 0.5, fill = "grey", draw_quantiles = FALSE, trim = FALSE) +
+  facet_grid(Week~Species, scales = "free_x", space = "free_x") +
+  scale_y_log10() +
+  geom_point(mapping = aes(size = sqrt(Abundance), color = Species), alpha = 0.4, na.rm = TRUE) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank())
+p.Prevotella.VL
+
+```
+
+```{r DeSeq2 Identified Taxa by CD4 Category, fig.width=9, fig.height=6}
+# Same plots as above, but for CD4_category
+# Capnocytophaga violin-point plots
+p.Capnocytophaga.CD4 <- ggplot(ps0_Capnocytophaga, aes(x = CD4_category, y = Abundance, fill = Genus)) + 
+  theme_bw() +
+  scale_size_continuous(range = c(2, 9)) +
+  geom_violin(na.rm = TRUE, alpha = 0.5, fill = "grey", draw_quantiles = TRUE) +
+  facet_grid(Week~Species, scales = "free_x", space = "free_x") +
+  scale_y_log10() +
+  geom_point(mapping = aes(size = sqrt(Abundance), color = Species), alpha = 0.4, na.rm = TRUE) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank())
+p.Capnocytophaga.CD4
+
+# Aggregatibacter violin-point plots
+p.Aggregatibacter.CD4 <- ggplot(ps0_Aggregatibacter, aes(x = CD4_category, y = Abundance, fill = Genus)) + 
+  theme_bw() +
+  scale_size_continuous(range = c(2, 9)) +
+  geom_violin(na.rm = TRUE, alpha = 0.5, fill = "grey", draw_quantiles = TRUE) +
+  facet_grid(Week~Species, scales = "free_x", space = "free_x") +
+  scale_y_log10() +
+  geom_point(mapping = aes(size = sqrt(Abundance), color = Species), alpha = 0.4, na.rm = TRUE) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank())
+p.Aggregatibacter.CD4
+
+# [Paraprevotellaceae] violin-point plots
+p.Paraprevotellaceae.CD4 <- ggplot(ps0_Paraprevotellaceae, aes(x = CD4_category, y = Abundance, fill = Genus)) + 
+  theme_bw() +
+  scale_size_continuous(range = c(2, 9)) +
+  geom_violin(na.rm = TRUE, alpha = 0.5, fill = "grey", draw_quantiles = TRUE) +
+  facet_grid(Week~Species, scales = "free_x", space = "free_x") +
+  scale_y_log10() +
+  geom_point(mapping = aes(size = sqrt(Abundance), color = Species), alpha = 0.4, na.rm = TRUE) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank())
+p.Paraprevotellaceae.CD4
+
+# Dialister violin-point plots
+p.Dialister.CD4 <- ggplot(ps0_Dialister, aes(x = CD4_category, y = Abundance, fill = Genus)) + 
+  theme_bw() +
+  scale_size_continuous(range = c(2, 9)) +
+  geom_violin(na.rm = TRUE, alpha = 0.5, fill = "grey", draw_quantiles = TRUE) +
+  facet_grid(Week~Species, scales = "free_x", space = "free_x") +
+  scale_y_log10() +
+  geom_point(mapping = aes(size = sqrt(Abundance), color = Species), alpha = 0.4, na.rm = TRUE) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank())
+p.Dialister.CD4
+
+# Fusobacterium violin-point plots
+p.Fusobacterium.CD4 <- ggplot(ps0_Fusobacterium, aes(x = CD4_category, y = Abundance, fill = Genus)) + 
+  theme_bw() +
+  scale_size_continuous(range = c(2, 9)) +
+  geom_violin(na.rm = TRUE, alpha = 0.5, fill = "grey", draw_quantiles = TRUE) +
+  facet_grid(Week~Species, scales = "free_x", space = "free_x") +
+  scale_y_log10() +
+  geom_point(mapping = aes(size = sqrt(Abundance), color = Species), alpha = 0.4, na.rm = TRUE) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank())
+p.Fusobacterium.CD4
+
+# Veillonella violin-point plots
+p.Veillonella.CD4 <- ggplot(ps0_Veillonella, aes(x = CD4_category, y = Abundance, fill = Genus)) + 
+  theme_bw() +
+  scale_size_continuous(range = c(2, 9)) +
+  geom_violin(na.rm = TRUE, alpha = 0.5, fill = "grey") +
+  facet_grid(Week~Species, scales = "free_x", space = "free_x") +
+  scale_y_log10() +
+  geom_point(mapping = aes(size = sqrt(Abundance), color = Species), alpha = 0.4, na.rm = TRUE) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank())
+p.Veillonella.CD4
+
+# Streptococcus violin-point plots
+p.Streptococcus.CD4 <- ggplot(ps0_Streptococcus, aes(x = CD4_category, y = Abundance, fill = Genus)) + 
+  theme_bw() +
+  scale_size_continuous(range = c(2, 9)) +
+  geom_violin(na.rm = TRUE, alpha = 0.5, fill = "grey", draw_quantiles = FALSE, trim = FALSE) +
+  facet_grid(Week~Species, scales = "free_x", space = "free_x") +
+  scale_y_log10() +
+  geom_point(mapping = aes(size = sqrt(Abundance), color = Species), alpha = 0.4, na.rm = TRUE) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank())
+p.Streptococcus.CD4
+
+# Neisseria violin-point plots
+p.Neisseria.CD4 <- ggplot(ps0_Neisseria, aes(x = CD4_category, y = Abundance, fill = Genus)) + 
+  theme_bw() +
+  scale_size_continuous(range = c(2, 9)) +
+  geom_violin(na.rm = TRUE, alpha = 0.5, fill = "grey", draw_quantiles = FALSE, trim = FALSE) +
+  facet_grid(Week~Species, scales = "free_x", space = "free_x") +
+  scale_y_log10() +
+  geom_point(mapping = aes(size = sqrt(Abundance), color = Species), alpha = 0.4, na.rm = TRUE) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank())
+p.Neisseria.CD4
+
+# Prevotella violin-point plots
+p.Prevotella.CD4 <- ggplot(ps0_Prevotella, aes(x = CD4_category, y = Abundance, fill = Genus)) + 
+  theme_bw() +
+  scale_size_continuous(range = c(2, 9)) +
+  geom_violin(na.rm = TRUE, alpha = 0.5, fill = "grey", draw_quantiles = FALSE, trim = FALSE) +
+  facet_grid(Week~Species, scales = "free_x", space = "free_x") +
+  scale_y_log10() +
+  geom_point(mapping = aes(size = sqrt(Abundance), color = Species), alpha = 0.4, na.rm = TRUE) +
+  theme(strip.text = element_text(size = 12)) +
+  theme(axis.text = element_text(size = 12)) +
+  theme(axis.title = element_text(size = 12)) +
+  theme(legend.text = element_text(size = 12)) +
+  theme(axis.title.x = element_blank())
+p.Prevotella.CD4
+
+```
+
