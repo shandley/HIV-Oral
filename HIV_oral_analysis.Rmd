@@ -1,12 +1,8 @@
 ---
 title: "HIV Oral 16S Amplicon Analysis"
 author: "Scott A. Handley"
-date: "03/16/2017"
-output:
-  html_document:
-    toc: true
-    toc_float: true
-  pdf_document: default
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: html_document
 ---
 
 # Project Description:
@@ -27,16 +23,16 @@ Preprocessing steps can be viewed in **HIV_oral_preprocessing.Rmd**.
 * CCA code adopted from [michberr]https://github.com/michberr: http://deneflab.github.io/MicrobeMiseq/demos/mothur_2_phyloseq.html
 
 
-```{r global_options, include = FALSE}
-knitr::opts_chunk$set(fig.width=10,
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=8,
                       fig.height=6,
-                      fig.path="./figures/example_",
+                      fig.path="./figures/",
                       dev='pdf',
                       warning=FALSE,
                       message=FALSE)
 ```
 
-```{r initiate-environment, include=FALSE}
+```{r initiate-environment}
 library("ggplot2")
 packageVersion("ggplot2")
 library("phyloseq")
@@ -59,11 +55,23 @@ library("plotly")
 packageVersion("plotly")
 library("picante")
 packageVersion("picante")
-library(indicspecies)
+library("indicspecies")
 packageVersion("indicspecies")
+library("corrplot")
+packageVersion("corrplot")
+library("microbiome")
+packageVersion("microbiome")
+library("ggpubr")
+packageVersion("ggpubr")
+library("survival")
+packageVersion("survival")
+library("randomForest")
+packageVersion("randomForest")
+library("HH")
+packageVersion("HH")
 
 ```
-##Load phyloseq data generated from dada2
+Load phyloseq data generated from dada2
 
 ```{r initiate-data}
 # Load Phyloseq Object generated in HIV_oral_preprocessing.Rmd
@@ -79,7 +87,16 @@ sample_variables(ps0)
 
 ```
 
-##Factor reordering and renaming
+Set global ggplot2 theme and options.
+
+```{r global-theme-settings, include=FALSE}
+# Set global theming
+theme_set(theme_bw(base_size = 10,
+                   base_family = "Helvetica"))
+
+```
+
+Factor reordering and renaming
 
 ```{r factor-adjustments}
 # Factor re-ordering, relabelling, etc.
@@ -107,72 +124,73 @@ sample_data(ps0)$VL_category
 
 ```
 
-#Summary Statistics
+Summary Statistics
 
-```{r data-assessment, fig.height=4, fig.width=8}
-# Preprocessing
+```{r data-assessment}
+# Create a new data frame of the sorted row sums, a column of sorted values from 1 to the total number of individuals/counts for each RSV and a categorical variable stating these are all RSVs.
+readsumsdf = data.frame(nreads = sort(taxa_sums(ps0), TRUE), 
+                        sorted = 1:ntaxa(ps0),
+                        type = "RSVs")
 
-# Are their any RSV's in the data with zero reads. If so, how many?
-any(taxa_sums(ps0) == 0)
-sum(taxa_sums(ps0) == 0)
 
-# If there are any, use the code below to prune them away
-# ps0 <- prune_taxa(taxa_sums(ps0) > 0, ps0)
-# any(taxa_sums(ps0) == 0)
-# sum(taxa_sums(ps0) == 0)
+# Add a column of sample sums (total number of individuals per sample)
+readsumsdf = rbind(readsumsdf,
+                   data.frame(nreads = sort(sample_sums(ps0), TRUE),
+                              sorted = 1:nsamples(ps0),
+                              type = "Samples"))
 
-# Reserve only sequences that were classified as Bacteria
-# Remove Mitochondria and Chloroplast RSVs
-ps0
-ps0 <- ps0 %>%
-  subset_taxa(
-    Kingdom == "Bacteria" &
-    Family  != "mitochondria" &
-    Class   != "Chloroplast"
-  )
-ps0
-
-# Generate a data.frame of the sorted number of reads and summary of RSVs
-readsumsdf = data.frame(nreads = sort(taxa_sums(ps0), TRUE), sorted = 1:ntaxa(ps0), 
-    type = "RSVs")
-readsumsdf = rbind(readsumsdf, data.frame(nreads = sort(sample_sums(ps0), 
-    TRUE), sorted = 1:nsamples(ps0), type = "Samples"))
-title = "Total number of reads"
-p.reads = ggplot(readsumsdf, aes(x = sorted, y = nreads)) +
-  geom_bar(stat = "identity") +
-  ggtitle(title) +
-  scale_y_log10() +
-  facet_wrap(~type, 1, scales = "free") +
-  ylab("# of Reads")
-
-# Histogram of sample read counts
-# Make a data frame with a column for the read counts of each sample
+# Make a data frame with a column for the read counts of each sample for histogram production
 sample_sum_df <- data.frame(sum = sample_sums(ps0))
 
+# Make plots
+# Generates a bar plot with # of reads (y-axis) for each taxa. Sorted from most to least abundant
+# Generates a second bar plot with # of reads (y-axis) per sample. Sorted from most to least
+p.reads = ggplot(readsumsdf, aes(x = sorted, y = nreads)) +
+  geom_bar(stat = "identity") +
+  ggtitle("RSV Assessment") +
+  scale_y_log10() +
+  facet_wrap(~type, scales = "free") +
+  ylab("# of Reads")
+
+# Histogram of the number of Samples (y-axis) at various read depths
 p.reads.hist <- ggplot(sample_sum_df, aes(x = sum)) + 
   geom_histogram(color = "black", fill = "firebrick3", binwidth = 2500) +
   ggtitle("Distribution of sample sequencing depth") + 
   xlab("Read counts") +
   ylab("# of Samples")
 
+# Final plot, side-by-side
 grid.arrange(p.reads, p.reads.hist, ncol = 2)
 
-# The plot on the left labelled RSV's is # of reads per RSV. This is regularaly a long-tail
-# The plot on the right labelled Samples is # of reads per sample. There should be generally simillar numbers per sample, but not infrequent to have a few that are significantly lower than the others
-# The histogram a distribution of the number of samples (y-axis) at bins of sequencing depth (x-axis)
+# Basic summary statistics
+summary(sample_sums(ps0))
 
-# Some basic summary stats
-smin <- min(sample_sums(ps0))
-smin
-smean <- mean(sample_sums(ps0))
-smean
-smax <- max(sample_sums(ps0))
-smax
+```
 
-# There are quite a few samples with very few sequences in this data
-# Not sure if this is just how oral samples look, or if something wrong with sequencing
-# Removing samples with < 100 sequences as first pass analysis
-# This removes 3 samples
+Bad sample identification and removal.
+
+```{r sample-removal-identification}
+# Format a data table to combine sample summary data with sample variable data
+ss <- sample_sums(ps0)
+sd <- as.data.frame(sample_data(ps0)) # useful to coerce the phyloseq object into an R data frame
+df <- merge(sd, data.frame("RSVs" = ss), by ="row.names") # merge ss with sd by row names. Rename ss to RSVs in the new data frame
+
+# Plot the data by the treatment variable
+
+y = 100 # Set a threshold for the minimum number of acceptable reads. Can start as a guess
+x = "Week" # Set the x-axis variable you want to examine
+label = "Description" # This is the label you want to overlay on the points that are below threshold y. Should be something sample specific
+
+p.ss.violin <- ggplot(df, aes_string(x, y = "RSVs", fill = x)) + # x is what you assigned it above
+  geom_violin() +
+  scale_y_log10() +
+  geom_hline(yintercept = y, lty = 2) + # Draws a dashed line across the threshold you set above as y
+  geom_jitter(alpha = 0.5, width = 0.15) +
+  geom_text(data = subset(df, RSVs <= y), aes_string(x, y="RSVs", label=label), size=2) # This labels a subset that fall below threshold variable y and labels them with the label variable
+
+p.ss.violin
+
+# Remove samples with fewer than 100 sequences
 ps0 <- prune_samples(sample_sums(ps0)>=100, ps0)
 ps0
 min(sample_sums(ps0))
@@ -181,70 +199,62 @@ min(sample_sums(ps0))
 
 ```{r outlier-sample-evaluation}
 # Outlier evaluation
-out.bray <- ordinate(ps0, method = "MDS", distance = "bray")
-p.MDS.outlier <- plot_ordination(ps0, out.bray, color = "Week") +
+out.bray <- ordinate(ps0, method = "MDS", distance = "jaccard")
+p.MDS.outlier <- plot_ordination(ps0, out.bray, color = "Week", axes = c(1,2)) +
   theme_bw() +
   geom_point(size = 2) +
-  ggtitle("MDS of Bray Distances \nOutlier Evaluation")
-  #geom_text(aes(label = Well), size = 3, check_overlap = FALSE, vjust = -1)
+  ggtitle("MDS of Bray Distances \nOutlier Evaluation") +
+  stat_ellipse(type = "norm", geom = "polygon", alpha = 1/10, aes(fill = Week))
 p.MDS.outlier
 
 ```
 
-##Prevelance filtering
+All samples are realtivaley tighlty clustered. No samples will be removed based on Bray-curtis distances.
 
 ```{r prevalence-assessment}
-# Prevelance filtering
+# Begin by removing sequences that were not classified as Bacteria or were classified as either mitochondria or chlorplast
+
+ps0 # Check the number of taxa prior to removal
+ps1 <- ps0 %>%
+  subset_taxa(
+    Kingdom == "Bacteria" &
+    Family  != "mitochondria" &
+    Class   != "Chloroplast"
+  )
+ps1 # Confirm that the taxa were removed
+
+# Note the prefix (e.g. k__, f__, c__, etc.) is a GreenGenes convention. If you are using RDP or Silva you can simply remove these prefixes.
+
+# To remove RSVs lacking phyla classification
+#ps2 <- subset_taxa(ps2, !is.na(Phylum) & !Phylum %in% c("","uncharacterized"))
+
+# Prevelance estimation
 # Calculate feature prevelance across the data set
-prevdf <- apply(X = otu_table(ps0), MARGIN = ifelse(taxa_are_rows(ps0), yes = 1, no = 2), FUN = function(x){sum(x > 0)})
+prevdf <- apply(X = otu_table(ps1),MARGIN = ifelse(taxa_are_rows(ps1), yes = 1, no = 2),FUN = function(x){sum(x > 0)})
 
 # Add taxonomy and total read counts to prevdf
-prevdf <- data.frame(Prevalence = prevdf, TotalAbundance = taxa_sums(ps0), tax_table(ps0))
+prevdf <- data.frame(Prevalence = prevdf, TotalAbundance = taxa_sums(ps1), tax_table(ps1))
 
+# Create a table of Phylum, their mean abundances across all samples, and the number of samples they were detected in
 plyr::ddply(prevdf, "Phylum", function(df1){cbind(mean(df1$Prevalence),sum(df1$Prevalence))})
-# This creates a table of Phylum, their mean abundances across all samples, and the number of samples they were detected in
-
-# Verrrucomicrobia are low prevalence, but keeping in for now as they may covary with a variable
 
 #Prevalence plot
-prevdf1 <- subset(prevdf, Phylum %in% get_taxa_unique(ps0, "Phylum"))
-p.prevdf1 <- ggplot(prevdf1, aes(TotalAbundance, Prevalence / nsamples(ps0),color=Phylum)) +
-  # Include a guess for parameter
+prevdf1 <- subset(prevdf, Phylum %in% get_taxa_unique(ps1, "Phylum"))
+p.prevdf1 <- ggplot(prevdf1, aes(TotalAbundance, Prevalence / nsamples(ps1),color=Family)) +
   geom_hline(yintercept = 0.03, alpha = 0.5, linetype = 2) +
   geom_point(size = 3, alpha = 0.7) +
   scale_x_log10() +
   xlab("Total Abundance") + ylab("Prevalence [Frac. Samples]") +
   facet_wrap(~Phylum) +
   theme(legend.position="none") +
-  theme(axis.text = element_text(size = 10)) +
-  theme(axis.title = element_text(size = 10)) +
-  theme(strip.text = element_text(size = 10)) +
-  ggtitle("Phylum Prevelence in All Samples")
+  ggtitle("Phylum Prevelence in All Samples\nColored by Family")
 p.prevdf1
-
-# Could remove taxa with a prevalence of < 3-5%, but this does tap into some of the proteobacteria which may covary with important variables, so leaving in for now
-
-# Other targets for filtering would be
-# p__GN02, p__SR1, p__Synergisteles, p__Verrumicrobia
-# For now, I am leaving everything in 
-
-# If you wanted to remove you would use the following code
-# filterPhyla = c("p__GN02", "p__SR1", "p__Synergistetes", "p__Verrucomicrobia")
-# ps0.prev <- subset_taxa(ps0, !Phylum %in% filterPhyla)
-# ps0
-# ps0.prev # This would removed 11 taxa from the current data
-
-# The following code would remove taxa that fall below 5% prevelance
-# Leaving in for now, but may return in DeSeq2 analysis doesnt yield any differentially abundant taxa
-# prevalenceThreshold = 0.05 * nsamples(ps0)
-# prevalenceThreshold
-# keepTaxa <- rownames(prevdf1)[(prevdf1$Prevalence >= prevalenceThreshold)]
-# ps0.prev <- prune_taxa(keepTaxa, ps0)
-# ps0 <- ps0.prev
 
 ```
 
-##Data transformations
+No reason to filter low-prevelance taxa at this stage.
+
+Data transformations
 
 ```{r data-transform}
 # Transform to Realative abundances
@@ -279,7 +289,7 @@ p.log <- qplot(log10(rowSums(otu_table(ps0)))) +
 grid.arrange(p.nolog, p.log, ncol = 2)
 
 ```
-##Subsetting
+Subsetting
 
 ```{r subsetting}
 # Subset. Always subset after taxa/sample filtering
@@ -355,185 +365,180 @@ ggplot(ps0_phylum, aes(x = SampleNo, y = Abundance, fill = Phylum)) +
   scale_fill_manual(values = c('#1b9e77','#d95f02','#7570b3','#e7298a','#66a61e','#e6ab02','#a6761d','#666666'))
 
 ```
-# Alpha Diversity Analysis
+
+```{r add-sample-data}
+# Diversity
+diversity <- global(ps0)
+head(diversity)
+
+# Combine diversity into metadata
+sample_data(ps0)$Shannon <- diversity$diversities_shannon
+sample_data(ps0)$Richness <- diversity$richness_0
+colnames(sample_data(ps0))
+
+```
 
 ```{r alpha-diversity}
-# Richness plots | Requires intergers so can't be performed on transformed data
-p.rich <- plot_richness(ps0, measures=c("Observed"), col = "CD4_category", sortby = "Observed") +
-  theme_bw() +
-  facet_grid(. ~ Week, scales="free_x") +
-  geom_point(size=4, alpha=0.7) +
-  geom_point(colour = "grey90", size = 0.5) +
-  theme(axis.text.x = element_blank()) +
-  labs(y="Richness") +
-  # ggtitle("Richness") +
-  theme(strip.text = element_text(size = 12)) +
-  theme(axis.text = element_text(size = 12)) +
-  theme(axis.title = element_text(size = 12)) +
-  theme(legend.text = element_text(size = 12))
-
-p.shannon <- plot_richness(ps0, measures=c("Shannon"), col = "CD4_category", sortby = "Shannon") +
-  theme_bw() +
-  facet_grid(. ~ Week, scales="free_x") +
-  geom_point(size=4, alpha=0.7) +
-  geom_point(colour = "grey90", size = 0.5) +
-  theme(axis.text.x = element_blank()) +
-  labs(y="Shannon Diversity") +
-  # ggtitle("Shannon Diversity") +
-  theme(strip.text = element_text(size = 12)) +
-  theme(axis.text = element_text(size = 12)) +
-  theme(axis.title = element_text(size = 12)) +
-  theme(legend.text = element_text(size = 12))
-
-grid.arrange(p.rich, p.shannon, nrow = 2)
-
-# Export table for use in prism
-est.rich <- estimate_richness(ps0.no_vl_nc, measures = c("Observed", "Shannon"))
+# Make data frame with richness measures
+est.rich <- estimate_richness(ps0, measures = c("Observed", "Shannon"))
+head(est.rich)
 
 # Make new data table combining richness with sample data
-ps0.rich <- cbind(sample_data(ps0.no_vl_nc), est.rich)
+ps0.rich <- cbind(sample_data(ps0), est.rich)
 head(ps0.rich)
 
-write.table(ps0.rich, file = "./results/alpha_diversity.txt", sep = "\t")
+# log10 transform skewed viral load data
+ps0.rich$VL <- log10(ps0.rich$VL)
 
-# Boxplots - CD4 category - Richness
-p.box.rich.cd4 <- ggplot(ps0.rich, aes(CD4_category, Observed)) +
-  geom_boxplot() +
-  geom_jitter(width = 0.1) +
+# CD4 category
+p.rich.CD4 <- ggboxplot(ps0.rich, x = "CD4_category", y = "Observed", notch = FALSE, add = "jitter") +
   facet_grid(~Week) +
-  theme_bw() +
-  theme(strip.text = element_text(size = 12)) +
-  theme(axis.text = element_text(size = 12)) +
-  theme(axis.title.x = element_blank()) +
-  theme(legend.text = element_text(size = 12))
+  stat_compare_means(method = "t.test", label = "p.format")
 
-p.box.shannon.cd4 <- ggplot(ps0.rich, aes(CD4_category, Shannon)) +
-  geom_boxplot() +
-  geom_jitter(width = 0.1) +
+p.shannon.CD4 <- ggboxplot(ps0.rich, x = "CD4_category", y = "Shannon", notch = FALSE, add = "jitter") +
   facet_grid(~Week) +
-  theme_bw() +
-  theme(strip.text = element_text(size = 12)) +
-  theme(axis.text = element_text(size = 12)) +
-  theme(axis.title = element_text(size = 12)) +
-  theme(axis.title.x = element_blank()) +
-  theme(legend.text = element_text(size = 12))
+  stat_compare_means(method = "t.test", label = "p.format")
 
-grid.arrange(p.box.rich.cd4, p.box.shannon.cd4, nrow = 2)
+grid.arrange(p.rich.CD4, p.shannon.CD4, ncol = 2)
 
-# Boxplots - VL category - Richness
-p.box.rich.vl <- ggplot(ps0.rich, aes(VL_category, Observed)) +
-  geom_boxplot() +
-  geom_jitter(width = 0.1) +
+# VL category
+# Remove samples with no viral load data
+ps0.vl <- subset(ps0.rich, VL_category != "Not collected")
+
+p.rich.VL <- ggboxplot(ps0.vl, x = "VL_category", y = "Observed", notch = FALSE, add = "jitter") +
   facet_grid(~Week) +
-  theme_bw() +
-  theme(strip.text = element_text(size = 12)) +
-  theme(axis.text = element_text(size = 12)) +
-  theme(axis.title.x = element_blank()) +
-  theme(legend.text = element_text(size = 12))
+  stat_compare_means(method = "t.test", label = "p.format")
 
-p.box.shannon.vl <- ggplot(ps0.rich, aes(VL_category, Shannon)) +
-  geom_boxplot() +
-  geom_jitter(width = 0.1) +
+p.shannon.VL <- ggboxplot(ps0.vl, x = "VL_category", y = "Shannon", notch = FALSE, add = "jitter") +
   facet_grid(~Week) +
-  theme_bw() +
-  theme(strip.text = element_text(size = 12)) +
-  theme(axis.text = element_text(size = 12)) +
-  theme(axis.title = element_text(size = 12)) +
-  theme(axis.title.x = element_blank()) +
-  theme(legend.text = element_text(size = 12))
+  stat_compare_means(method = "t.test", label = "p.format")
 
-grid.arrange(p.box.rich.vl, p.box.shannon.vl, nrow = 2)
+grid.arrange(p.rich.VL, p.shannon.VL, ncol = 2)
 
-# Within week comparisons between groups and comparisons across time-points did not identify any statistically significant differences (t-test) between groups
+grid.arrange(p.rich.CD4, p.shannon.CD4, p.rich.VL, p.shannon.VL, nrow = 2, ncol = 2)
+
+```
+Alpha diversity regression
+
+```{r alpha-diversity-regression-CD4}
+# The plot_regression command from the microbiome package requires phyloseq objects
+ps0.rich.base <- subset(ps0.rich, Week == "Baseline")
+ps0.rich.24 <- subset(ps0.rich, Week == "Week 24")
+
+# CD4
+p.regr.rich.base.cd4 <- plot_regression(Richness ~ CD4, meta(ps0.rich.base), B=500, show.lm = TRUE, spag = FALSE, shade = FALSE) +
+  ggtitle("Richness vs. CD4 (c/ml) Baseline") +
+  ylab("Richness") +
+  xlab("CD4 (c/ml)") +
+  annotate("text", x = 775, y = 325, label = "p = 0.7863") +
+  ylim(0,350) +
+  xlim(0,900)
+cor.test(sample_data(ps0.rich.base)$Richness, sample_data(ps0.rich.base)$CD4)
+
+p.regr.rich.24.cd4 <- plot_regression(Richness ~ CD4, meta(ps0.rich.24), B=500, show.lm = TRUE, spag = FALSE, shade = FALSE) +
+  ggtitle("Richness vs. CD4 (c/ml) Week 24") +
+  ylab("Richness") +
+  xlab("CD4 (c/ml)") +
+  annotate("text", x = 775, y = 325, label = "p = 0.0048") +
+  ylim(0,350) +
+  xlim(0,900)
+cor.test(sample_data(ps0.rich.24)$Richness, sample_data(ps0.rich.24)$CD4)
+
+grid.arrange(p.regr.rich.base.cd4, p.regr.rich.24.cd4, ncol = 2)
 
 ```
 
-#Beta Diversity Analysis
+```{r alpha-diversity-regression-VL}
+# VL
+p.regr.rich.base.vl <- plot_regression(Richness ~ VL, meta(ps0.rich.base), B=500, show.lm = TRUE, spag = FALSE, shade = FALSE) +
+  ggtitle("Richness vs. VL (c/ml) Baseline") +
+  ylab("Richness") +
+  xlab("VL (c/ml)") +
+  annotate("text", x = 5.5, y = 325, label = "p = 0.1374") +
+  ylim(0,350)
+cor.test(sample_data(ps0.rich.base)$Richness, sample_data(ps0.rich.base)$VL)
+
+p.regr.rich.24.vl <- plot_regression(Richness ~ VL, meta(ps0.rich.24), B=500, show.lm = TRUE, spag = FALSE, shade = FALSE) +
+  ggtitle("Richness vs. VL (c/ml) Week 24") +
+  ylab("Richness") +
+  xlab("VL (c/ml)") +
+  annotate("text", x = 5.5, y = 325, label = "p = 0.8236") +
+  ylim(0,350)
+cor.test(sample_data(ps0.rich.24)$Richness, sample_data(ps0.rich.24)$VL)
+
+grid.arrange(p.regr.rich.base.vl, p.regr.rich.24.vl, ncol = 2)
+
+```
+
+```{r ANCOVA-CD4}
+# Interaction between age, EE status and alpha diversity
+# Or use hotdog to visualize the resutls
+ancova(Shannon~CD4*Week, data = ps0.rich)
+cor.test(sample_data(ps0.rich.base)$Shannon, sample_data(ps0.rich.base)$CD4)
+cor.test(sample_data(ps0.rich.24)$Shannon, sample_data(ps0.rich.24)$CD4)
+
+ancova(Richness~CD4*Week, data = ps0.rich)
+cor.test(sample_data(ps0.rich.base)$Richness, sample_data(ps0.rich.base)$CD4)
+cor.test(sample_data(ps0.rich.24)$Richness, sample_data(ps0.rich.24)$CD4)
+
+```
+
+```{r ANCOVA-VL}
+# Interaction between age, EE status and alpha diversity
+# Or use hotdog to visualize the resutls
+ancova(Shannon~VL*Week, data = ps0.rich)
+cor.test(sample_data(ps0.rich.base)$Shannon, sample_data(ps0.rich.base)$VL)
+cor.test(sample_data(ps0.rich.24)$Shannon, sample_data(ps0.rich.24)$VL)
+
+ancova(Richness~VL*Week, data = ps0.rich)
+cor.test(sample_data(ps0.rich.base)$Richness, sample_data(ps0.rich.base)$VL)
+cor.test(sample_data(ps0.rich.24)$Richness, sample_data(ps0.rich.24)$VL)
+
+```
+
+```{r random-forest}
+library(reshape2)
+output.forest <- randomForest(CD4_category ~ Shannon + Richness + VL + CD4, na.action = na.omit, data = ps0.rich.base)
+print(output.forest)
+
+importance(output.forest, type = 2)
+importance.molten <- melt( importance(output.forest, type = 2))
+
+ggplot(importance.molten, aes(x = Var1, y = value)) + geom_bar(stat = "identity")
+
+```
+Beta Diversity Analysis
 
 ```{r beta-diversity}
-#Ordination Analysis
-
-# Multiple methods - All samples
-# Performed on log transformed data (see notes above)
-ord.pcoa.uni <- ordinate(ps0.log, method = "PCoA", distance = "unifrac")
-ord.pcoa.wuni <- ordinate(ps0.log, method = "PCoA", distance = "wunifrac")
-ord.dpcoa <- ordinate(ps0.log, method = "DPCoA")
-
-# Plot - Week
-p.pcoa.uni.week <- plot_ordination(ps0.log, ord.pcoa.uni, color = "CD4_category", shape = "VL_category") +
-  theme_bw() +
-  geom_point(size=5, alpha = 0.7) +
-  scale_color_brewer(palette = "Dark2") +
-  geom_point(colour = "grey50", size = 1.5) +
-  facet_grid(~ Week) +
-  ggtitle("PCoA | Unifrac") +
-  theme(plot.title = element_text(hjust = 0.5, size = 12)) +
-  theme(strip.text = element_text(size = 12)) +
-  theme(axis.text = element_text(size = 12)) +
-  theme(axis.title = element_text(size = 12)) +
-  theme(legend.text = element_text(size = 12)) +
-  theme(plot.title = element_text(hjust = 0.5)) 
-
-p.pcoa.wuni.week <- plot_ordination(ps0.log, ord.pcoa.wuni, color = "CD4_category", shape = "VL_category") +
-  theme_bw() +
-  geom_point(size=5, alpha = 0.7) +
-  ggtitle("PCoA | wUnifrac") +
-  scale_color_brewer(palette = "Dark2") +
-  geom_point(colour = "grey50", size = 1.5) +
-  facet_grid(~ Week) +
-  theme(plot.title = element_text(hjust = 0.5, size = 12)) +
-  theme(strip.text = element_text(size = 12)) +
-  theme(axis.text = element_text(size = 12)) +
-  theme(axis.title = element_text(size = 12)) +
-  theme(legend.text = element_text(size = 12)) +
-  theme(plot.title = element_text(hjust = 0.5))
-
-p.dpcoa.week <- plot_ordination(ps0.log, ord.dpcoa, color = "CD4_category", shape = "VL_category") +
-  theme_bw() +
-  geom_point(size=5, alpha = 0.7) +
-  scale_color_brewer(palette = "Dark2") +
-  geom_point(colour = "grey50", size = 1.5) +
-  ggtitle("DPCoA") +
-  facet_grid(~ Week) +
-  theme(plot.title = element_text(hjust = 0.5, size = 12)) +
-  theme(strip.text = element_text(size = 12)) +
-  theme(axis.text = element_text(size = 12)) +
-  theme(axis.title = element_text(size = 12)) +
-  theme(legend.text = element_text(size = 12)) +
-  theme(plot.title = element_text(hjust = 0.5))
-
-grid.arrange(p.pcoa.uni.week, p.pcoa.wuni.week, p.dpcoa.week, nrow = 3)
-
-# All distance measures show most of variance is across PC1. Less variance is explained in PC2
-# Both wUnifrac and DPCoA explain > 30% of the variance in PC1. No reason so far to pick one over the other
-# Seperation by time, CD4 category or VL category are not observed using any of the distance measures
-
-```
-
-```{r publication-pcoa}
 # Remove Samples with uncollected (Not Collected) viral loads
-sample_data(ps0.log)$VL_category
-ps0.log.rem_nc <- subset_samples(ps0.log, VL_category != "NC")
-ps0.log.rem_nc
+sample_data(ps0)$VL_category
+ps0.rem_nc <- subset_samples(ps0, VL_category != "Not collected")
+sample_data(ps0.rem_nc)$VL_category
 
-ord.ps0.log.rem_nc.wuni <- ordinate(ps0.log.rem_nc, method = "PCoA", distance = "wunifrac")
+ord.ps0.wuni <- ordinate(ps0.rem_nc, method = "PCoA", distance = "wunifrac")
 
 #  Single PCoA lot for presentation / publication
-plot_ordination(ps0.log.rem_nc, ord.ps0.log.rem_nc.wuni, color = "VL_category") +
-  theme_bw() +
-  geom_point(size=4, alpha = 0.7) +
+p.ord.CD4 <- plot_ordination(ps0.log.rem_nc, ord.ps0.wuni, color = "Week") +
+  geom_point(size=3, alpha = 0.7) +
   scale_color_brewer(palette = "Dark2") +
   geom_point(colour = "grey50", size = 1.5) +
-  # facet_grid(~ Week) +
-  theme(plot.title = element_text(hjust = 0.5, size = 18)) +
-  theme(strip.text = element_text(size = 12)) +
-  theme(axis.text = element_text(size = 12)) +
-  theme(axis.title = element_text(size = 12)) +
-  theme(legend.text = element_text(size = 12)) +
-  theme(plot.title = element_text(hjust = 0.5))  +
-  geom_line(aes(group = patient_id), color = "black") +
-  ggtitle("wUNIFRAC PCoA \n Samples CD4 Low at Baseline") +
-  stat_ellipse(type = "norm")
+  facet_grid(~ CD4_category)
+
+p.ord.VL <- plot_ordination(ps0.log.rem_nc, ord.ps0.wuni, color = "Week") +
+  geom_point(size=3, alpha = 0.7) +
+  scale_color_brewer(palette = "Dark2") +
+  geom_point(colour = "grey50", size = 1.5) +
+  facet_grid(~ VL_category)
+
+grid.arrange(p.ord.CD4, p.ord.VL, nrow = 2)
+
+ ######### geom_line(aes(group = patient_id), color = "black") +
+p.connect <- plot_ordination(ps0.log.rem_nc, ord.ps0.wuni, color = "Week") +
+  geom_point(size=3, alpha = 0.7) +
+  scale_color_brewer(palette = "Dark2") +
+  geom_point(colour = "grey50", size = 1.5)
+  geom_line(aes(group = patient_id), color = "black")
+p.connect
 
 ```
 
