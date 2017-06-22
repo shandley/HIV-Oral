@@ -1,19 +1,27 @@
 ---
-title: "HIV - Oral - Preprocessing"
+title: "HIV Oral Microbiome - 16S - Presti - dada2 Preprocessing"
 author: "Scott A. Handley"
-date: "1/3/2017"
+date: "6/22/2017"
 output: html_document
 ---
 
-dada2 analysis of WNV infected Vancomycin treated mice.
+## References:
+  ## http://f1000research.com/articles/5-1492/v1
+  ## http://benjjneb.github.io/dada2/tutorial.html
+  ## http://benjjneb.github.io/dada2/bigdata_paired.html
 
-References:
-  http://f1000research.com/articles/5-1492/v1
-  http://benjjneb.github.io/dada2/tutorial.html
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=8,
+                      fig.height=6,
+                      fig.path="./figures/",
+                      dev='pdf',
+                      warning=FALSE,
+                      message=FALSE)
+```
 
-```{r}
+```{r initiate-environment}
 # Load libraries
-library("ShortRead")
+library(ShortRead)
 packageVersion("ShortRead")
 library(dada2)
 packageVersion("dada2")
@@ -27,160 +35,115 @@ library("phyloseq")
 packageVersion("phyloseq")
 
 ```
+Filter and trim the reads.
 
-```{r}
-# Set file paths
-path <- "~/Desktop/HIV_oral_dada2/"
+Settings need to be adjusted per run.
 
-# Create ordered list of files
-fns <- sort(list.files(path))
-fns
-
-```
-
-```{r}
-# View sequence quality
-
-# Isolate the fastq files just in case you have other file types in the folder
-fastqs <- fns[grepl(".fastq$", fns)]
-fastqs <- sort(fastqs) # Sort ensures forward/reverse reads are in same order. May or may not be necessary
-fnFs <- fastqs[grepl("_R1", fastqs)] # Just the forward read files. Note: Must have _R1 in file name.
-fnFs
-fnRs <- fastqs[grepl("_R2", fastqs)] # Just the reverse read files. Note: Must have _R2 in file name.
-fnRs
-
-# Get sample names from the first part of the forward read filenames
-sample.names <- sapply(strsplit(fnFs, "_"), `[`, 1) # Note. This just pulls everything before the _.
-sample.names
-
-# Fully specify the path for the fnFs and fnRs
-fnFs <- file.path(path, fnFs)
-fnFs
-fnRs <- file.path(path, fnRs)
-fnRs
+```{r examine-filter-trim}
+# File parsing
+pathF <- "~/Desktop/HIV_oral_dada2/forward/" # CHANGE ME to the directory containing your demultiplexed forward-read fastq files
+pathR <- "~/Desktop/HIV_oral_dada2/reverse/" # CHANGE ME, ...
+filtpathF <- file.path(pathF, "filtered") # Filtered forward files go into the pathF/filtered/ subdirectory
+filtpathR <- file.path(pathR, "filtered") # ...
+fastqFs <- sort(list.files(pathF, pattern="fastq"))
+fastqRs <- sort(list.files(pathR, pattern="fastq"))
 
 # Plot forward and reverse read quality
-plotQualityProfile(fnFs[1]) + ggtitle("Fwd")
-plotQualityProfile(fnRs[1]) + ggtitle("Rev")
+p.qual.f <- plotQualityProfile(pathF[1], aggregate = TRUE) + ggtitle("Fwd")
+p.qual.r <- plotQualityProfile(pathR[1], aggregate = TRUE) + ggtitle("Rev")
 
-# Read 2 is very low-quality
+if(length(fastqFs) != length(fastqRs)) stop("Forward and reverse files do not match.")
+filterAndTrim(fwd=file.path(pathF, fastqFs), filt=file.path(filtpathF, fastqFs),
+              rev=file.path(pathR, fastqRs), filt.rev=file.path(filtpathR, fastqRs),
+              trimLeft=c(10,10), truncLen=c(200,200), maxEE=2, truncQ=11, maxN=0, rm.phix=TRUE,
+              compress=TRUE, verbose=TRUE, multithread=TRUE)
+
 
 ```
+Error rate inference.
 
-```{r}
-# Make directory and filenames for the filtered fastqs
-filt_path <- file.path(path, "filtered")
-if(!file_test("-d", filt_path)) dir.create(filt_path)
-filtFs <- file.path(filt_path, paste0(sample.names, "_F_filt.fastq.gz"))
-filtRs <- file.path(filt_path, paste0(sample.names, "_R_filt.fastq.gz"))
-# Filter
-for(i in seq_along(fnFs)) {
-  fastqPairedFilter(c(fnFs[i], fnRs[i]), c(filtFs[i], filtRs[i]),
-                    trimLeft=c(10, 10), truncLen=c(200,200), 
-                    maxN=0, maxEE=2, truncQ=2, 
-                    compress=TRUE, verbose=TRUE, rm.phix =c(TRUE, TRUE))
+```{r sample-inference}
+# Set paramaters
+filtFs <- list.files(filtpathF, pattern="fastq", full.names = TRUE)
+filtRs <- list.files(filtpathR, pattern="fastq", full.names = TRUE)
+sample.names <- sapply(strsplit(basename(filtFs), "_"), `[`, 1) # Assumes filename = samplename_XXX.fastq.gz
+sample.namesR <- sapply(strsplit(basename(filtRs), "_"), `[`, 1) # Assumes filename = samplename_XXX.fastq.gz
+if(!identical(sample.names, sample.namesR)) stop("Forward and reverse files do not match.")
+names(filtFs) <- sample.names
+names(filtRs) <- sample.names
+set.seed(100)
+
+# Learn forward error rates
+errF <- learnErrors(filtFs, nread=2e6, multithread=TRUE)
+p.err.F <- plotErrors(errF, nominalQ = TRUE)
+
+# Learn reverse error rates
+errR <- learnErrors(filtRs, nread=2e6, multithread=TRUE)
+p.err.R <- plotErrors(errR, nominalQ = TRUE)
+
+# Dereplicate, apply error rate to all sequences and merge
+mergers <- vector("list", length(sample.names))
+names(mergers) <- sample.names
+for(sam in sample.names) {
+  cat("Processing:", sam, "\n")
+    derepF <- derepFastq(filtFs[[sam]])
+    ddF <- dada(derepF, err=errF, multithread=TRUE)
+    derepR <- derepFastq(filtRs[[sam]])
+    ddR <- dada(derepR, err=errR, multithread=TRUE)
+    merger <- mergePairs(ddF, derepF, ddR, derepR)
+    mergers[[sam]] <- merger
 }
+rm(derepF); rm(derepR)
 
-# Probably just going to analyze R1 due to lower quality and questionable value of R2
-
+save.image("~/Desktop/HIV_oral_dada2/HIV_oral_dada2_16S_preprocessing.RData")
 ```
+Construct sequence table and remove chimeras.
 
-```{r}
-# Dereplicate sequences
-derepFs <- derepFastq(filtFs, verbose=TRUE)
+```{r seqtab-chimera-removal}
+seqtab <- makeSequenceTable(mergers)
+seqtab.nochim <- removeBimeraDenovo(seqtab, multithread=TRUE)
 
-# Name the derep-class objects by the sample names
-names(derepFs) <- sample.names
-
-save.image("~/Desktop/HIV_oral_dada2/HIV_oral_dada2.RData")
-save.image("~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/HIV_oral_dada2.RData")
-
+save.image("~/Desktop/HIV_oral_dada2/HIV_oral_dada2_16S_preprocessing.RData")
+save.image("~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/HIV_oral_dada2_16S_preprocessing.RData")
 ```
+Assign taxonomy.
 
-```{r}
-# Sequence inference
-dadaFs <- dada(derepFs, err=NULL, selfConsist = TRUE, pool = TRUE, multithread = TRUE)
-
-plotErrors(dadaFs, nominalQ = TRUE) + ggtitle("Forward")
-
-save.image("~/Desktop/HIV_oral_dada2/HIV_oral_dada2.RData")
-save.image("~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/HIV_oral_dada2.RData")
-
-```
-
-```{r}
-#mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose=TRUE)
-# Inspect the merger data.frame from the first sample
-#head(mergers[[1]])
-
-```
-
-```{r}
-# Construct sequence table
-seqtab <- makeSequenceTable(dadaFs[names(dadaFs) != "Mock"])
-dim(seqtab)
-write.table(seqtab, file = "~/Desktop/HIV_oral_dada2/seqtab_full_HIV_oral.txt", sep = "\t")
-
-# Inspect distribution of sequence lengths
-table(nchar(colnames(seqtab)))
-
-save.image("~/Desktop/HIV_oral_dada2/HIV_oral_dada2.RData")
-save.image("~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/HIV_oral_dada2.RData")
-
-```
-
-```{r}
-# Remove chimeras
-seqtab.nochim <- removeBimeraDenovo(seqtab, verbose=TRUE)
-dim(seqtab.nochim)
-
-sum(seqtab.nochim)/sum(seqtab)
-
-save.image("~/Desktop/HIV_oral_dada2/HIV_oral_dada2.RData")
-save.image("~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/HIV_oral_dada2.RData")
-
-```
-
-```{r}
-## Assign Taxonomy
+```{r assign-taxonomy}
 # GreenGenes
-taxa.gg <- assignTaxonomy(seqtab.nochim, "~/Desktop/FGT_dada2/gg_13_8_train_set_97.fa.gz")
+taxa.gg <- assignTaxonomy(seqtab.nochim, "~/Dropbox/Research/tax_assign_dbs/gg_13_8_train_set_97.fa.gz", multithread = TRUE)
 unname(head(taxa.gg))
 colnames(taxa.gg) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
 
 # RDP
-taxa.rdp <- assignTaxonomy(seqtab.nochim, "~/Desktop/FGT_dada2/rdp_train_set_14.fa.gz")
+taxa.rdp <- assignTaxonomy(seqtab.nochim, "~/Dropbox/Research/tax_assign_dbs/rdp_train_set_16.fa.gz", multithread = TRUE)
 unname(head(taxa.rdp))
 colnames(taxa.rdp) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus")
 
 # Silva
-taxa.silva <- assignTaxonomy(seqtab.nochim, "~/Desktop/FGT_dada2/silva_nr_v123_train_set.fa.gz")
+taxa.silva <- assignTaxonomy(seqtab.nochim,  "~/Dropbox/Research/tax_assign_dbs/silva_nr_v128_train_set.fa.gz", multithread = TRUE)
 unname(head(taxa.silva))
 colnames(taxa.silva) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus")
 
+# HitDB
+taxa.hitdb <- assignTaxonomy(seqtab.nochim, "~/Dropbox/Research/tax_assign_dbs/hitdb_v1.00.fa.gz", multithread = TRUE)
+
 # Add species to RDP and Silva
-taxa.rdp.plus <- addSpecies(taxa.rdp, "~/Desktop/dada2_species_databases/assignTaxonomy/rdp_species_assignment_14.fa.gz", verbose = TRUE)
+#RDP
+taxa.rdp.plus <- addSpecies(taxa.rdp, "~/Dropbox/Research/tax_assign_dbs/rdp_species_assignment_16.fa.gz")
 unname(head(taxa.rdp.plus))
 colnames(taxa.rdp.plus) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
 
-# 218 out of 1947 were assigned to the species level.
-# Of which 212 had genera consistent with the input table.
-
 # SILVA
-taxa.silva.plus <- addSpecies(taxa.silva, "~/Desktop/dada2_species_databases/assignTaxonomy/silva_species_assignment_v123.fa.gz", verbose = TRUE)
+taxa.silva.plus <- addSpecies(taxa.silva, "~/Dropbox/Research/tax_assign_dbs/silva_species_assignment_v128.fa.gz")
 unname(head(taxa.silva.plus))
 colnames(taxa.silva.plus) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
 
-# 146 out of 601 were assigned to the species level.
-# Of which 142 had genera consistent with the input table.
-
-save.image("~/Desktop/HIV_oral_dada2/HIV_oral_dada2.RData")
-save.image("~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/HIV_oral_dada2.RData")
-
+save.image("~/Desktop/HIV_oral_dada2/HIV_oral_dada2_16S_preprocessing.RData")
+save.image("~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/HIV_oral_dada2_16S_preprocessing.RData")
 ```
+Construct the phylogenetic tree.
 
-```{r}
-# Construct the phylogenetic tree
+```{r construct-phylogeny}
 seqs <- getSequences(seqtab.nochim)
 
 names(seqs) <- seqs # This propagates to the tip labels of the tree
@@ -197,12 +160,11 @@ fitGTR <- optim.pml(fitGTR, model="GTR", optInv=TRUE, optGamma=TRUE,
                        rearrangement = "stochastic", control = pml.control(trace = 0))
 detach("package:phangorn", unload=TRUE)
 
-save.image("~/Desktop/HIV_oral_dada2/HIV_oral_dada2.RData")
-save.image("~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/HIV_oral_dada2.RData")
-
+save.image("~/Desktop/HIV_oral_dada2/HIV_oral_dada2_16S_preprocessing.RData")
+save.image("~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/HIV_oral_dada2_16S_preprocessing.RData")
 ```
 
-```{r}
+```{r create-phyloseq}
 # Create PhyloSeq objects
 # Greengenes
 # Strip the r__ prefixes from taxon labels. This is only needed for the GreenGenes taxon annotations
@@ -225,46 +187,25 @@ ps0.rdp
 ps0.silva <- phyloseq(otu_table(seqtab.nochim, taxa_are_rows = FALSE), tax_table(taxa.silva.plus), phy_tree(fitGTR$tree))
 ps0.silva
 
-# Import mapping data
-# Mapping fileikely has updates since OTU picking
-# This enables import of updated mapping data
-map.dada <- import_qiime_sample_data("~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/data/mapping_HIV_oral.txt")
-dim(map.dada)
-head(map.dada)
+# HitDb
+ps0.hitdb <- phyloseq(otu_table(seqtab.nochim, taxa_are_rows = FALSE), tax_table(taxa.hitdb), phy_tree(fitGTR$tree))
+ps0.hitdb
 
 # Sanity checks
-dim(map.dada)
-
-# Merge OTU table with mapping data
-ps0.gg <- merge_phyloseq(ps0.gg, map.dada)
-ps0.gg
-
-ps0.rdp <- merge_phyloseq(ps0.rdp, map.dada)
-ps0.rdp
-
-ps0.silva <- merge_phyloseq(ps0.silva, map.dada)
-ps0.silva
-
-# Sanity checks
-rank_names(ps0.gg)
-nsamples(ps0.gg)
-sample_variables(ps0.gg)
-ntaxa(ps0.gg)
-taxa_names(ps0.gg)[1:10]
 get_taxa_unique(ps0.gg, "Phylum")
+get_taxa_unique(ps0.rdp, "Phylum")
+get_taxa_unique(ps0.silva, "Phylum")
+get_taxa_unique(ps0.hitdb, "Phylum")
 
-# Basic read depth statistics
-min(sample_sums(ps0.gg))
-max(sample_sums(ps0.gg))
-mean(sample_sums(ps0.gg))
-median(sample_sums(ps0.gg))
+# Save RDS files for downstream analysis
+saveRDS(ps0.gg, file = "~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/ps0.HIV_oral.gg.RDS")
+saveRDS(ps0.rdp, file = "~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/ps0.HIV_oral.rdp.RDS")
+saveRDS(ps0.silva, file = "~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/ps0.HIV_oral.silva.RDS")
+saveRDS(ps0.hitdb, file = "~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/ps0.HIV_oral.hitdb.RDS")
 
-# Save Phyloseq Object as RDS
-saveRDS(ps0.gg, "~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/data/HIV_oral.ps0.gg.rds")
-saveRDS(ps0.rdp, "~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/data/HIV_oral.ps0.rdp.rds")
-saveRDS(ps0.silva, "~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/data/HIV_oral.ps0.silva.rds")
-
-save.image("~/Desktop/HIV_oral_dada2/HIV_oral_dada2.RData")
-save.image("~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/HIV_oral_dada2.RData")
+save.image("~/Desktop/HIV_oral_dada2/HIV_oral_dada2_16S_preprocessing.RData")
+save.image("~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/HIV_oral_dada2_16S_preprocessing.RData")
 
 ```
+
+
