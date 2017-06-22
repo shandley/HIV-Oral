@@ -41,8 +41,8 @@ Settings need to be adjusted per run.
 
 ```{r examine-filter-trim}
 # File parsing
-pathF <- "~/Desktop/HIV_oral_dada2/forward/" # CHANGE ME to the directory containing your demultiplexed forward-read fastq files
-pathR <- "~/Desktop/HIV_oral_dada2/reverse/" # CHANGE ME, ...
+pathF <- "~/Desktop/HIV_oral_dada2/raw_reads/forward/" # CHANGE ME to the directory containing your demultiplexed forward-read fastq files
+pathR <- "~/Desktop/HIV_oral_dada2/raw_reads/reverse/" # CHANGE ME, ...
 filtpathF <- file.path(pathF, "filtered") # Filtered forward files go into the pathF/filtered/ subdirectory
 filtpathR <- file.path(pathR, "filtered") # ...
 fastqFs <- sort(list.files(pathF, pattern="fastq"))
@@ -198,10 +198,10 @@ get_taxa_unique(ps0.silva, "Phylum")
 get_taxa_unique(ps0.hitdb, "Phylum")
 
 # Save RDS files for downstream analysis
-saveRDS(ps0.gg, file = "~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/ps0.HIV_oral.gg.RDS")
-saveRDS(ps0.rdp, file = "~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/ps0.HIV_oral.rdp.RDS")
-saveRDS(ps0.silva, file = "~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/ps0.HIV_oral.silva.RDS")
-saveRDS(ps0.hitdb, file = "~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/ps0.HIV_oral.hitdb.RDS")
+saveRDS(ps0.gg, file = "~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/data/ps0.HIV_oral.gg.RDS")
+saveRDS(ps0.rdp, file = "~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/data/ps0.HIV_oral.rdp.RDS")
+saveRDS(ps0.silva, file = "~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/data/ps0.HIV_oral.silva.RDS")
+saveRDS(ps0.hitdb, file = "~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/data/ps0.HIV_oral.hitdb.RDS")
 
 save.image("~/Desktop/HIV_oral_dada2/HIV_oral_dada2_16S_preprocessing.RData")
 save.image("~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/HIV_oral_dada2_16S_preprocessing.RData")
