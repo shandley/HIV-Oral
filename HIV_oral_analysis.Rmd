@@ -381,6 +381,10 @@ p.vl <- ggpaired(ps1.rich, x = "Week", y = "vl", add = "jitter", color = "Week",
 
 grid.arrange(p.cd4, p.vl, ncol = 2)
 
+plot_frequencies(sample_data(ps1), "Week", "cd4_category")
+
+plot_frequencies(sample_data(ps1), "Week", "vl_category")
+
 ```
 
 ```{r alpha-diversity}
@@ -424,27 +428,27 @@ Alpha diversity regression
 
 ```{r alpha-diversity-regression-CD4}
 # The plot_regression command from the microbiome package requires phyloseq objects
-ps0.rich.base <- subset(ps0.rich, Week == "Baseline")
-ps0.rich.24 <- subset(ps0.rich, Week == "Week 24")
+ps1.rich.base <- subset(ps1.rich, Week == "Baseline")
+ps1.rich.24 <- subset(ps1.rich, Week == "Week 24")
 
 # CD4
-p.regr.rich.base.cd4 <- plot_regression(Richness ~ CD4, meta(ps0.rich.base), B=500, show.lm = TRUE, spag = FALSE, shade = FALSE) +
+p.regr.rich.base.cd4 <- plot_regression(Richness ~ cd4, meta(ps1.rich.base), B=500, show.lm = TRUE, spag = FALSE, shade = FALSE) +
   ggtitle("Richness vs. CD4 (c/ml) Baseline") +
   ylab("Richness") +
   xlab("CD4 (c/ml)") +
-  annotate("text", x = 775, y = 325, label = "p = 0.7863") +
-  ylim(0,350) +
+  annotate("text", x = 775, y = 70, label = "p = 0.8219") +
+  ylim(0,75) +
   xlim(0,900)
-cor.test(sample_data(ps0.rich.base)$Richness, sample_data(ps0.rich.base)$CD4)
+cor.test(sample_data(ps1.rich.base)$Richness, sample_data(ps1.rich.base)$cd4)
 
-p.regr.rich.24.cd4 <- plot_regression(Richness ~ CD4, meta(ps0.rich.24), B=500, show.lm = TRUE, spag = FALSE, shade = FALSE) +
+p.regr.rich.24.cd4 <- plot_regression(Richness ~ cd4, meta(ps1.rich.24), B=500, show.lm = TRUE, spag = FALSE, shade = FALSE) +
   ggtitle("Richness vs. CD4 (c/ml) Week 24") +
   ylab("Richness") +
   xlab("CD4 (c/ml)") +
-  annotate("text", x = 775, y = 325, label = "p = 0.0048") +
-  ylim(0,350) +
+  annotate("text", x = 775, y = 70, label = "p = 0.0658") +
+  ylim(0,75) +
   xlim(0,900)
-cor.test(sample_data(ps0.rich.24)$Richness, sample_data(ps0.rich.24)$CD4)
+cor.test(sample_data(ps1.rich.24)$Richness, sample_data(ps1.rich.24)$cd4)
 
 grid.arrange(p.regr.rich.base.cd4, p.regr.rich.24.cd4, ncol = 2)
 
