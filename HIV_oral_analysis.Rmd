@@ -438,26 +438,49 @@ Alpha diversity regression.
 ps1.rich.base <- subset(ps1.rich, Week == "Baseline")
 ps1.rich.24 <- subset(ps1.rich, Week == "Week 24")
 
-# CD4
+# Richness
 p.regr.rich.base.cd4 <- plot_regression(richness_0 ~ cd4, meta(ps1.rich.base), B=500, show.lm = TRUE, spag = FALSE, shade = FALSE) +
-  ggtitle("Richness vs. CD4 (c/ml) Baseline") +
+  ggtitle("Baseline") +
   ylab("Richness") +
   xlab("CD4 (c/ml)") +
-  annotate("text", x = 775, y = 70, label = "p = 0.9207") +
-  ylim(0,75) +
-  xlim(0,900)
+  ylim(0,200) +
+  annotate("text", x = 600, y = 185, label = "p = 0.9207") +
+  theme(legend.position = "none")
 cor.test(sample_data(ps1.rich.base)$richness_0, sample_data(ps1.rich.base)$cd4)
 
 p.regr.rich.24.cd4 <- plot_regression(richness_0 ~ cd4, meta(ps1.rich.24), B=500, show.lm = TRUE, spag = FALSE, shade = FALSE) +
-  ggtitle("Richness vs. CD4 (c/ml) Week 24") +
+  ggtitle("Week 24") +
   ylab("Richness") +
   xlab("CD4 (c/ml)") +
-  annotate("text", x = 775, y = 70, label = "p = 0.1558") +
-  ylim(0,75) +
-  xlim(0,900)
+  ylim(0,200) +
+  annotate("text", x = 750, y = 185, label = "p = 0.1647") +
+  theme(legend.position = "none")
 cor.test(sample_data(ps1.rich.24)$richness_0, sample_data(ps1.rich.24)$cd4)
 
 grid.arrange(p.regr.rich.base.cd4, p.regr.rich.24.cd4, ncol = 2)
+
+# Shannon Diversity
+p.regr.sd.base.cd4 <- plot_regression(diversities_shannon ~ cd4, meta(ps1.rich.base), B=500, show.lm = TRUE, spag = FALSE, shade = FALSE) +
+  ggtitle("Baseline") +
+  ylab("Shannon Diversity") +
+  xlab("CD4 (c/ml)") +
+  ylim(0,5) +
+  xlim(0,800) +
+  annotate("text", x = 600, y = 4.5, label = "p = 0.7006") +
+  theme(legend.position = "none")
+cor.test(sample_data(ps1.rich.base)$diversities_shannon, sample_data(ps1.rich.base)$cd4)
+
+p.regr.sd.24.cd4 <- plot_regression(diversities_shannon ~ cd4, meta(ps1.rich.24), B=500, show.lm = TRUE, spag = FALSE, shade = FALSE) +
+  ggtitle("Week 24") +
+  ylab("Shannon Diversity") +
+  xlab("CD4 (c/ml)") +
+  ylim(0,5) +
+  xlim(0,800) +
+  annotate("text", x = 600, y = 4.5, label = "p = 0.2559") +
+  theme(legend.position = "none")
+cor.test(sample_data(ps1.rich.24)$diversities_shannon, sample_data(ps1.rich.24)$cd4)
+
+grid.arrange(p.regr.sd.base.cd4, p.regr.sd.24.cd4, ncol = 2)
 
 ```
 
@@ -552,7 +575,7 @@ grid.arrange(p.rf.base, p.rf.24, ncol = 2)
 
 ```
 
-```{r relative-importance-analysis}
+```{r relative-importance-analysis, eval=FALSE, include=FALSE}
 # Baseline
 fit.base <- lm(cd4 ~ diversities_shannon + richness_0 + tnf2 + tnf1 + vl + sCD14, data=ps1.rich.base)
 fit.24 <- lm(cd4 ~ diversities_shannon + richness_0 + tnf2 + tnf1 + sCD14, data=ps1.rich.24)
@@ -973,44 +996,43 @@ summary(phi_coeff)
 
 ```
 
-```{r indicator-species-analysis-cd4-base}
+```{r indicator-species-analysis-cd4-week-24}
 # Working with native vegan code, so convert phyloseq object to data.frame
-otu.table.base <- data.frame(otu_table(ps1.base))
+otu.table.24 <- data.frame(otu_table(ps1.24))
 
 # make a data frame from the sample_data
-sampledf.base <- data.frame(sample_data(ps1.base))
+sampledf.24 <- data.frame(sample_data(ps1.24))
 
 # Indicator species analysis using multipatt
-indicator.species.base <- multipatt(otu.table.base, sampledf.base$cd4_category, func="IndVal.g", duleg=TRUE)
+indicator.species.24 <- multipatt(otu.table.24, sampledf.24$cd4_category, func="IndVal.g", duleg=TRUE)
 
 # multipatt() reports the square-root of indval, so the original version of the indicator species value would be:
-indval.base <- indicator.species.base$str^2
+indval.24 <- indicator.species.24$str^2
 
 # IndVal is calculated as the product of fidelity ("B"; occupancy) and specificity ("A"; mean abundance in a group, normalized to the sum of
 # all group mean abundances - can be thought of as "I found one of these - what is the probability that I am in a particular group
 # or habitat type"):
-B.base <- indicator.species.base$B
-A.base <- indicator.species.base$A
+B.24 <- indicator.species.24$B
+A.24 <- indicator.species.24$A
 
 # Significance table
-sig.base <- indicator.species.base$sign
+sig.24 <- indicator.species.24$sign
 
 # Ouput accounting forFDR
-indicator.results.base<-data.frame(indval.base, B.base, A.base, sig.base)
-indicator.results.base$Pfdr<-p.adjust(indicator.results.base$p.value, "fdr")
+indicator.results.24 <- data.frame(indval.24, B.24, A.24, sig.24)
+indicator.results.24$Pfdr<-p.adjust(indicator.results.24$p.value, "fdr")
 
-significant.indicators.base<-indicator.results.base[indicator.results.base$Pfdr<0.05, ]
-significant.indicators.base
+significant.indicators.24<-indicator.results.24[indicator.results.24$Pfdr<0.05, ]
+significant.indicators.24
 
 # point biserial correlation between presence/absence of a species and a habitat type
+pa.24 <- decostand(otu.table.24, method = "pa")
+phi_coeff.24 <- multipatt(pa.24, sampledf.24$cd4_category, func="r.g", duleg=TRUE)
 
-pa <- decostand(otu.table, method = "pa")
-phi_coeff <- multipatt(pa, sampledf$SurvivalStatus, func="r.g", duleg=TRUE)
-
-summary(phi_coeff)
-
+summary(phi_coeff.24)
 
 ```
+
 
 Taxon specific barplots from DA taxa identified with DeSeq2.
 
