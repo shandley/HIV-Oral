@@ -190,6 +190,10 @@ ps0 <- prune_samples(sample_sums(ps0)>=50, ps0)
 ps0
 min(sample_sums(ps0))
 
+# Remove paired sample
+ps0 <- subset_samples(ps0, patient_ID != 83772)
+ps0
+
 ```
 
 ```{r outlier-sample-evaluation}
@@ -351,7 +355,7 @@ diversity <- global(ps1)
 head(diversity)
 
 sd.1 <- as.data.frame(sample_data(ps1)) # useful to coerce the phyloseq object into an R data frame
-sd.div <- merge(sd.1, diversity, by ="row.names") # merge ss with sd by row names. Rename ss to RSVs in the new data frame
+ps1.rich <- merge(sd.1, diversity, by ="row.names") # merge ss with sd by row names. Rename ss to RSVs in the new data frame
 
 # Can also combing just richness and diversity instead of entire diversity data frame
 # sample_data(ps1)$Shannon <- diversity$diversities_shannon
@@ -361,14 +365,6 @@ sd.div <- merge(sd.1, diversity, by ="row.names") # merge ss with sd by row name
 ```
 
 ```{r metadata-plots}
-# Make data frame with richness measures
-est.rich <- estimate_richness(ps1, measures = c("Observed", "Shannon"))
-head(est.rich)
-
-# Make new data table combining richness with sample data
-ps1.rich <- cbind(sample_data(ps1), diversity)
-head(ps1.rich)
-
 # log10 transform skewed viral load data
 # ps1.rich$vl <- log10(ps1.rich$vl)
 
@@ -420,6 +416,19 @@ p.shannon.VL <- ggboxplot(ps1.rich, x = "vl_category", y = "diversities_shannon"
 grid.arrange(p.rich.VL, p.shannon.VL, ncol = 2)
 
 grid.arrange(p.rich.CD4, p.shannon.CD4, p.rich.VL, p.shannon.VL, nrow = 2, ncol = 2)
+
+```
+
+```{r paired-alpha-diversity}
+p.paired.rich.vl <- ggpaired(ps1.rich, x = "Week", y = "richness_0", id = "patient_ID", facet.by = "vl_category") +
+  stat_compare_means(paired = TRUE) +
+  ylab("Richness")
+
+p.paired.rich.cd4 <- ggpaired(ps1.rich, x = "Week", y = "richness_0", id = "patient_ID", facet.by = "cd4_category") +
+  stat_compare_means(paired = TRUE) +
+  ylab("Richness")
+
+grid.arrange(p.paired.rich.cd4, p.paired.rich.vl, nrow = 2)
 
 ```
 Alpha diversity regression.
