@@ -56,10 +56,6 @@ library("plotly")
 packageVersion("plotly")
 library("picante")
 packageVersion("picante")
-library("indicspecies")
-packageVersion("indicspecies")
-library("corrplot")
-packageVersion("corrplot")
 library("microbiome")
 packageVersion("microbiome")
 library("ggpubr")
@@ -83,7 +79,7 @@ Load phyloseq data generated from dada2.
 
 ```{r initiate-data}
 # Load Phyloseq Object generated in HIV_oral_preprocessing.Rmd
-ps0 <- readRDS("~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/data/ps0.HIV_oral.gg.RDS")
+ps0 <- readRDS("~/Dropbox/Research/AIDS/HIV/presti/HIV_oral/dada2/data/ps0.HIV_oral.rdp.RDS")
 ps0
 
 # Load mapping file
@@ -178,11 +174,14 @@ x = "Week" # Set the x-axis variable you want to examine
 label = "Description" # This is the label you want to overlay on the points that are below threshold y. Should be something sample specific
 
 p.ss.violin <- ggplot(ss.df, aes_string(x, y = "RSVs", fill = x)) + # x is what you assigned it above
-  geom_violin() +
-  scale_y_log10() +
+  geom_boxplot(outlier.colour="NA") +
+  scale_y_log10(breaks = c(0,100,1000,10000)) +
   geom_hline(yintercept = y, lty = 2) + # Draws a dashed line across the threshold you set above as y
   geom_jitter(alpha = 0.5, width = 0.15) +
-  geom_text(data = subset(ss.df, RSVs <= y), aes_string(x, y="RSVs", label=label), size=2) # This labels a subset that fall below threshold variable y and labels them with the label variable
+  #geom_text(data = subset(ss.df, RSVs <= y), aes_string(x, y="RSVs", label=label), size=2, hjust -1) +# This labels a subset that fall below threshold variable y and labels them with the label variable
+  ggtitle("No. of RSVs per Sampling Time") +
+  ylab("RSVs (log10)") +
+  theme(legend.position = "NULL")
 p.ss.violin
 
 # Remove samples with fewer than 50 sequences
@@ -239,14 +238,14 @@ plyr::ddply(prevdf, "Phylum", function(df1){cbind(mean(df1$Prevalence),sum(df1$P
 
 #Prevalence plot
 prevdf1 <- subset(prevdf, Phylum %in% get_taxa_unique(ps1, "Phylum"))
-p.prevdf1 <- ggplot(prevdf1, aes(TotalAbundance, Prevalence / nsamples(ps1),color=Family)) +
+p.prevdf1 <- ggplot(prevdf1, aes(TotalAbundance, Prevalence / nsamples(ps1),color=Class)) +
   geom_hline(yintercept = 0.03, alpha = 0.5, linetype = 2) +
   geom_point(size = 3, alpha = 0.7) +
   scale_x_log10() +
   xlab("Total Abundance") + ylab("Prevalence [Frac. Samples]") +
   facet_wrap(~Phylum) +
-  theme(legend.position="none") +
-  ggtitle("Phylum Prevelence in All Samples\nColored by Family")
+  # theme(legend.position="none") +
+  ggtitle("Phylum Prevelence in All Samples\nColored by Class")
 p.prevdf1
 
 ```
@@ -367,13 +366,12 @@ ps1.rich <- merge(sd.1, diversity, by ="row.names") # merge ss with sd by row na
 ```{r metadata-plots}
 # log10 transform skewed viral load data
 # ps1.rich$vl <- log10(ps1.rich$vl)
-
-p.cd4 <- ggboxplot(ps1.rich, x = "Week", y = "cd4", add = "jitter", color = "Week") +
-  stat_compare_means(label = "p.format") +
+p.cd4 <- ggboxplot(ps1.rich, x = "Week", y = "cd4", add = "jitter", color = "Week", outlier.shape = NA) +
+  stat_compare_means(method = "wilcox.test", label = "p.format") +
   ylab("CD4 (c/ml)")
 
-p.vl <- ggboxplot(ps1.rich, x = "Week", y = "vl", add = "jitter", color = "Week") +
-  stat_compare_means(label = "p.format") +
+p.vl <- ggboxplot(ps1.rich, x = "Week", y = "vl", add = "jitter", color = "Week", outlier.shape = NA) +
+  stat_compare_means(method = "wilcox.test", label = "p.format") +
   scale_y_log10() +
   ylab("Viral Load (log10)")
 
@@ -387,31 +385,35 @@ plot_frequencies(sample_data(ps1), "Week", "vl_category")
 
 ```{r alpha-diversity}
 # CD4 category
-p.rich.CD4 <- ggboxplot(ps1.rich, x = "cd4_category", y = "richness_0", notch = FALSE, add = "jitter") +
+p.rich.CD4 <- ggboxplot(ps1.rich, x = "cd4_category", y = "richness_0", outlier.shape = NA) +
+  geom_jitter(width = 0.2) +
   facet_grid(~Week) +
   ylab("Richness") +
-  theme(axis.title.x = element_blank())
-  stat_compare_means(method = "t.test", label = "p.format")
+  theme(axis.title.x = element_blank()) +
+  stat_compare_means(method = "t.test", label = "p.signif")
 
-p.shannon.CD4 <- ggboxplot(ps1.rich, x = "cd4_category", y = "diversities_shannon", notch = FALSE, add = "jitter") +
+p.shannon.CD4 <- ggboxplot(ps1.rich, x = "cd4_category", y = "diversities_shannon", outlier.shape = NA) +
+  geom_jitter(width = 0.2) +
   facet_grid(~Week) +
   ylab("Shannon Diversity") +
-  theme(axis.title.x = element_blank())
-  stat_compare_means(method = "t.test", label = "p.format")
+  theme(axis.title.x = element_blank()) +
+  stat_compare_means(method = "t.test", label = "p.signif")
 
 grid.arrange(p.rich.CD4, p.shannon.CD4, ncol = 2)
 
-p.rich.VL <- ggboxplot(ps1.rich, x = "vl_category", y = "richness_0", notch = FALSE, add = "jitter") +
+p.rich.VL <- ggboxplot(ps1.rich, x = "vl_category", y = "richness_0", outlier.shape = NA) +
+  geom_jitter(width = 0.2) +
   facet_grid(~Week) +
   ylab("Richness") +
-  theme(axis.title.x = element_blank())
-  stat_compare_means(method = "t.test", label = "p.format")
+  theme(axis.title.x = element_blank()) +
+  stat_compare_means(method = "t.test", label = "p.signif")
 
-p.shannon.VL <- ggboxplot(ps1.rich, x = "vl_category", y = "diversities_shannon", notch = FALSE, add = "jitter") +
+p.shannon.VL <- ggboxplot(ps1.rich, x = "vl_category", y = "diversities_shannon", outlier.shape = NA) +
+  geom_jitter(width = 0.2) +
   facet_grid(~Week) +
   ylab("Shannon Diversity") +
-  theme(axis.title.x = element_blank()) 
-  stat_compare_means(method = "t.test", label = "p.format")
+  theme(axis.title.x = element_blank()) +
+  stat_compare_means(method = "t.test", label = "p.signif")
 
 grid.arrange(p.rich.VL, p.shannon.VL, ncol = 2)
 
@@ -420,12 +422,13 @@ grid.arrange(p.rich.CD4, p.shannon.CD4, p.rich.VL, p.shannon.VL, nrow = 2, ncol 
 ```
 
 ```{r paired-alpha-diversity}
-p.paired.rich.vl <- ggpaired(ps1.rich, x = "Week", y = "richness_0", id = "patient_ID", facet.by = "vl_category") +
+p.paired.rich.vl <- ggpaired(ps1.rich, x = "Week", y = "richness_0", id = "patient_ID", facet.by = "vl_category", oultier.shape = NA) +
   stat_compare_means(paired = TRUE) +
   ylab("Richness")
 
-p.paired.rich.cd4 <- ggpaired(ps1.rich, x = "Week", y = "richness_0", id = "patient_ID", facet.by = "cd4_category") +
+p.paired.rich.cd4 <- ggpaired(ps1.rich, x = "Week", y = "richness_0", id = "patient_ID", facet.by = "cd4_category", oultier.shape = NA) +
   stat_compare_means(paired = TRUE) +
+  geom_boxplot(outlier.colour = "NA") +
   ylab("Richness")
 
 grid.arrange(p.paired.rich.cd4, p.paired.rich.vl, nrow = 2)
@@ -439,7 +442,7 @@ ps1.rich.base <- subset(ps1.rich, Week == "Baseline")
 ps1.rich.24 <- subset(ps1.rich, Week == "Week 24")
 
 # Richness
-p.regr.rich.base.cd4 <- plot_regression(richness_0 ~ cd4, meta(ps1.rich.base), B=500, show.lm = TRUE, spag = FALSE, shade = FALSE) +
+p.regr.rich.base.cd4 <- plot_regression(richness_0 ~ cd4, meta(ps1.rich.base), B=500, show.lm = TRUE, spag = TRUE, shade = FALSE) +
   ggtitle("Baseline") +
   ylab("Richness") +
   xlab("CD4 (c/ml)") +
@@ -448,7 +451,7 @@ p.regr.rich.base.cd4 <- plot_regression(richness_0 ~ cd4, meta(ps1.rich.base), B
   theme(legend.position = "none")
 cor.test(sample_data(ps1.rich.base)$richness_0, sample_data(ps1.rich.base)$cd4)
 
-p.regr.rich.24.cd4 <- plot_regression(richness_0 ~ cd4, meta(ps1.rich.24), B=500, show.lm = TRUE, spag = FALSE, shade = FALSE) +
+p.regr.rich.24.cd4 <- plot_regression(richness_0 ~ cd4, meta(ps1.rich.24), B=500, show.lm = TRUE, spag = TRUE, shade = FALSE) +
   ggtitle("Week 24") +
   ylab("Richness") +
   xlab("CD4 (c/ml)") +
@@ -457,10 +460,8 @@ p.regr.rich.24.cd4 <- plot_regression(richness_0 ~ cd4, meta(ps1.rich.24), B=500
   theme(legend.position = "none")
 cor.test(sample_data(ps1.rich.24)$richness_0, sample_data(ps1.rich.24)$cd4)
 
-grid.arrange(p.regr.rich.base.cd4, p.regr.rich.24.cd4, ncol = 2)
-
 # Shannon Diversity
-p.regr.sd.base.cd4 <- plot_regression(diversities_shannon ~ cd4, meta(ps1.rich.base), B=500, show.lm = TRUE, spag = FALSE, shade = FALSE) +
+p.regr.sd.base.cd4 <- plot_regression(diversities_shannon ~ cd4, meta(ps1.rich.base), B=500, show.lm = TRUE, spag = TRUE, shade = FALSE) +
   ggtitle("Baseline") +
   ylab("Shannon Diversity") +
   xlab("CD4 (c/ml)") +
@@ -470,7 +471,7 @@ p.regr.sd.base.cd4 <- plot_regression(diversities_shannon ~ cd4, meta(ps1.rich.b
   theme(legend.position = "none")
 cor.test(sample_data(ps1.rich.base)$diversities_shannon, sample_data(ps1.rich.base)$cd4)
 
-p.regr.sd.24.cd4 <- plot_regression(diversities_shannon ~ cd4, meta(ps1.rich.24), B=500, show.lm = TRUE, spag = FALSE, shade = FALSE) +
+p.regr.sd.24.cd4 <- plot_regression(diversities_shannon ~ cd4, meta(ps1.rich.24), B=500, show.lm = TRUE, spag = TRUE, shade = FALSE) +
   ggtitle("Week 24") +
   ylab("Shannon Diversity") +
   xlab("CD4 (c/ml)") +
@@ -480,13 +481,13 @@ p.regr.sd.24.cd4 <- plot_regression(diversities_shannon ~ cd4, meta(ps1.rich.24)
   theme(legend.position = "none")
 cor.test(sample_data(ps1.rich.24)$diversities_shannon, sample_data(ps1.rich.24)$cd4)
 
-grid.arrange(p.regr.sd.base.cd4, p.regr.sd.24.cd4, ncol = 2)
+grid.arrange(p.regr.rich.base.cd4, p.regr.rich.24.cd4, p.regr.sd.base.cd4, p.regr.sd.24.cd4, ncol = 2, nrow = 2)
 
 ```
 
 ```{r alpha-diversity-regression-VL}
 # VL
-p.regr.rich.base.vl <- plot_regression(richness_0 ~ vl, meta(ps1.rich.base), B=500, show.lm = TRUE, spag = FALSE, shade = FALSE) +
+p.regr.rich.base.vl <- plot_regression(richness_0 ~ vl, meta(ps1.rich.base), B=500, show.lm = TRUE, spag = TRUE, shade = FALSE) +
   ggtitle("Richness vs. VL (c/ml) Baseline") +
   ylab("Richness") +
   xlab("VL (c/ml)") +
@@ -575,43 +576,6 @@ grid.arrange(p.rf.base, p.rf.24, ncol = 2)
 
 ```
 
-```{r relative-importance-analysis, eval=FALSE, include=FALSE}
-# Baseline
-fit.base <- lm(cd4 ~ diversities_shannon + richness_0 + tnf2 + tnf1 + vl + sCD14, data=ps1.rich.base)
-fit.24 <- lm(cd4 ~ diversities_shannon + richness_0 + tnf2 + tnf1 + sCD14, data=ps1.rich.24)
-
-# Calculate relative importance of each predictor
-calc.relimp(fit.base, type = c("lmg", "last", "first", "pratt"), rank = TRUE)
-
-# Bootstrap Measures of Relative Importance (1000 samples) 
-boot.base <- boot.relimp(fit.base, b = 1000, type = c("lmg", 
-  "last", "first", "pratt"), rank = TRUE, 
-  diff = TRUE, rela = TRUE)
-booteval.relimp(boot.base) # print result
-plot(booteval.relimp(boot.base,sort=TRUE)) # plot result
-
-# Week 24
-# Calculate relative importance of each predictor
-calc.relimp(fit.24, type = c("lmg", "last", "first", "pratt"), rank = TRUE)
-
-# Bootstrap Measures of Relative Importance (1000 samples) 
-boot.24 <- boot.relimp(fit.24, b = 1000, type = c("lmg", 
-  "last", "first", "pratt"), rank = TRUE, 
-  diff = TRUE, rela = TRUE)
-booteval.relimp(boot.24) # print result
-plot(booteval.relimp(boot.24,sort=TRUE)) # plot result
-
-```
-
-```{r influential-observations, eval=FALSE, include=FALSE}
-avPlots(fit.base)
-avPlots(fit.24)
-
-# Influence Plot 
-influencePlot(fit.base,	id.method="identify", main="Influence Plot", sub="Circle size is proportial to Cook's Distance" )
-influencePlot(fit.24,	id.method="identify", main="Influence Plot", sub="Circle size is proportial to Cook's Distance" )
-
-```
 Beta Diversity Analysis
 
 ```{r beta-diversity}
@@ -650,50 +614,6 @@ p.connect
 
 ```
 
-```{r proscutes, eval=FALSE, include=FALSE}
-# Remove Week 24 Sample 16785
-ps1.24.log
-ps1.24.log.1 <- subset_samples(ps1.24.log, Description != "83772_Week_24_1")
-ps1.24.log.1
-
-ord.base <- ordinate(ps1.base.log, method = "PCoA", distance = "wunifrac")
-ord.24 <- ordinate(ps1.24.log.1, method = "PCoA", distance = "wunifrac")
-
-# Join sample data and ordination axes together in one data.table
-ord.base.dt <- data.table(ord.base$vectors, keep.rownames = TRUE)
-setkey(ord.base.dt, "rn", "SampleID")
-ord.24.dt <- data.table(ord.24$vectors, keep.rownames = TRUE)
-
-ordWUdt <- data.table(ord.base$vectors, keep.rownames = TRUE)
-setnames(ordWUdt, "rn", "SampleID")
-setkey(ordWUdt, SampleID)
-
-
-pro1 <- ade4::procuste(dfX = ord.base.dt[, list(Axis.1, Axis.2)],
-                       dfY = ord.24.dt[, list(Axis.1, Axis.2)])
-
-
-# Add the procruste rotated and scaled coordinates to each table
-ord.base.dt[, c("New1", "New2") := pro1$tabX]
-ord.24.dt[, c("New1", "New2") := pro1$tabY]
-
-# Combine the tables for plottiing
-ord.base.dt[, D := "Baseline"]
-ord.24.dt[, D := "Week 24"]
-keepCols = c("New1", "New2", "D")
-procrustdt = rbindlist(list(ord.base.dt[, keepCols, with = FALSE],
-                            ord.24.dt[, keepCols, with = FALSE]))
-# Now define the ggplot object, 
-# connecting points with the same sample ID, but different distances
-ggplot(procrustdt, aes(New1, New2,
-                       color = D)) + 
-  geom_point(size = 5) +
-  geom_line(aes(group = SampleID), color = "black") + 
-  ggtitle("Procruste rotation comparing MDS
-          from two different distance measures")
-
-
-```
 Premanova significance testing
 
 ```{r}
@@ -863,7 +783,7 @@ Differential Abundance Testing - Week.
 ```{r diffab-baseline-vs-week-24}
 # Differential Abundance - Week
 ds.week <- phyloseq_to_deseq2(ps1, ~Week)
-dds.week <- DESeq(ds.week, test="Wald", fitType="local", betaPrior = FALSE) # Worth trying parametric and local fitTypes
+dds.week <- DESeq(ds.week, test="Wald", fitType="parametric", betaPrior = FALSE) # Worth trying parametric and local fitTypes
 res.dds.week = results(dds.week, cooksCutoff = FALSE)
 alpha = 0.1 # Note: this is higher to try and allow even weak effect size taxa through
 sigtab_dds.week = res.dds.week[which(res.dds.week$padj < alpha), ]
@@ -871,20 +791,10 @@ head(sigtab_dds.week) # Empty table
 
 write.table(sigtab_dds.week, file="./results/deseq_results_week.txt", sep = "\t") # Change filename to save results to appropriate file
 
-x.ds.week = tapply(sigtab_dds.week$log2FoldChange, sigtab_dds.week$Family, function(x) max(x))
-x.ds.week = sort(x.ds.week, TRUE)
-sigtab_dds.week$Species = factor(as.character(sigtab_dds.week$Family), levels=names(x.ds.week))
-p.deseq.base <- ggplot(sigtab_dds.base, aes(x=Family, y=log2FoldChange, color=Genus)) +
-  theme_bw() +
-  theme(plot.title = element_text(hjust = 0.5)) +
-  geom_point(size=5, alpha = 0.7) + 
-  theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) +
-  ggtitle("Taxa Differentially Associated by XXXX Category \n Baseline") + # Change title if variable changed
-  geom_hline(yintercept = 0, lwd=1.5)
-p.deseq.base
-
 # Quick check of factor levels
-mcols(res.dds.base, use.names = TRUE)
+# Factor on the right will be on the left in the volcano plots. Relevel to switch
+mcols(res.dds.week, use.names = TRUE)
+
 
 # Create volcano plots of signficant results
 # Prepare to join results data.table and taxonomy table
@@ -940,13 +850,58 @@ sigtab_dds.base = res.dds.base[which(res.dds.base$padj < alpha), ]
 sigtab_dds.base = cbind(as(sigtab_dds.base, "data.frame"), as(tax_table(ps1.base)[rownames(sigtab_dds.base), ], "matrix"))
 head(sigtab_dds.base)
 
+write.table(sigtab_dds.base, file="./results/deseq_results_base.txt", sep = "\t") # Change filename to save results to appropriate file
+
+# Quick check of factor levels
+# Factor on the right will be on the left in the volcano plots. Relevel to switch
+mcols(res.dds.base, use.names = TRUE)
+
+# Create volcano plots of signficant results
+# Prepare to join results data.table and taxonomy table
+# Baseline
+resdt.base = data.table(as(results(dds.base, cooksCutoff = FALSE), "data.frame"),
+                   keep.rownames = TRUE)
+setnames(resdt.base, "rn", "OTU")
+taxdt.base = data.table(data.frame(as(tax_table(ps1.base), "matrix")), keep.rownames = TRUE)
+setnames(taxdt.base, "rn", "OTU")
+
+# Join results data.table and taxonomy table
+setkeyv(taxdt.base, "OTU")
+setkeyv(resdt.base, "OTU")
+resdt.base <- taxdt.base[resdt.base]
+resdt.base
+resdt.base[, Significant := padj < alpha]
+resdt.base[!is.na(Significant)]
+resdt.base
+
+volcano.base = ggplot(
+  data = resdt.base[!is.na(Significant)][(pvalue < 1)],
+  mapping = aes(x = log2FoldChange,
+                y = -log10(pvalue),
+                color = Phylum,
+                label = OTU, label1 = Genus)) +
+  theme_bw() +
+  geom_point() + 
+  geom_point(data = resdt.base[(Significant)], size = 7, alpha = 0.7) + 
+  # geom_text(data = resdt.base[(Significant)], mapping = aes(label = paste("Genus:", Genus)), color = "black", size = 3) +
+  theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) +
+  geom_hline(yintercept = -log10(alpha)) +
+  ggtitle("DESeq2 Negative Binomial Test Volcano Plot\nBaseline Samples") +
+  theme(axis.title = element_text(size=12)) +
+  theme(axis.text = element_text(size=12)) +
+  theme(legend.text = element_text(size=12)) +
+  geom_vline(xintercept = 0, lty = 2)
+volcano.base
+
+ggplotly(volcano.base)
+
 ```
 #Differential Abundance Testing - Week 24 Samples
 
 ```{r diffab-week-24-samples}
 # Differential Abundance - 24line ~ CD4 and VL Category
 ds.24 <- phyloseq_to_deseq2(ps1.24, ~cd4_category) # Change formula to VL_category and rerun to test VL_category
-dds.24 <- DESeq(ds.24, test="Wald", fitType="parametric", betaPrior = FALSE) # Worth trying parametric and local fitTypes
+dds.24 <- DESeq(ds.24, test="Wald", fitType="local", betaPrior = FALSE) # Worth trying parametric and local fitTypes
 
 res.dds.24 = results(dds.24, cooksCutoff = FALSE)
 alpha = 0.1
@@ -957,122 +912,81 @@ head(sigtab_dds.24)
 
 ```
 
-```{r indicator-species-analysis-week}
-# Working with native vegan code, so convert phyloseq object to data.frame
-otu.table <- data.frame(otu_table(ps1))
-
-# make a data frame from the sample_data
-sampledf <- data.frame(sample_data(ps1))
-
-# Indicator species analysis using multipatt
-indicator.species <- multipatt(otu.table, sampledf$Week, func="IndVal.g", duleg=TRUE)
-
-# multipatt() reports the square-root of indval, so the original version of the indicator species value would be:
-indval <- indicator.species$str^2
-
-# IndVal is calculated as the product of fidelity ("B"; occupancy) and specificity ("A"; mean abundance in a group, normalized to the sum of
-# all group mean abundances - can be thought of as "I found one of these - what is the probability that I am in a particular group
-# or habitat type"):
-B <- indicator.species$B
-A <- indicator.species$A
-
-# Significance table
-sig <- indicator.species$sign
-
-# Ouput accounting forFDR
-indicator.results<-data.frame(indval, B, A, sig)
-indicator.results$Pfdr<-p.adjust(indicator.results$p.value, "fdr")
-
-significant.indicators<-indicator.results[indicator.results$Pfdr<0.05, ]
-significant.indicators
-
-# point biserial correlation between presence/absence of a species and a habitat type
-
-pa <- decostand(otu.table, method = "pa")
-phi_coeff <- multipatt(pa, sampledf$SurvivalStatus, func="r.g", duleg=TRUE)
-
-summary(phi_coeff)
-
-
-```
-
-```{r indicator-species-analysis-cd4-week-24}
-# Working with native vegan code, so convert phyloseq object to data.frame
-otu.table.24 <- data.frame(otu_table(ps1.24))
-
-# make a data frame from the sample_data
-sampledf.24 <- data.frame(sample_data(ps1.24))
-
-# Indicator species analysis using multipatt
-indicator.species.24 <- multipatt(otu.table.24, sampledf.24$cd4_category, func="IndVal.g", duleg=TRUE)
-
-# multipatt() reports the square-root of indval, so the original version of the indicator species value would be:
-indval.24 <- indicator.species.24$str^2
-
-# IndVal is calculated as the product of fidelity ("B"; occupancy) and specificity ("A"; mean abundance in a group, normalized to the sum of
-# all group mean abundances - can be thought of as "I found one of these - what is the probability that I am in a particular group
-# or habitat type"):
-B.24 <- indicator.species.24$B
-A.24 <- indicator.species.24$A
-
-# Significance table
-sig.24 <- indicator.species.24$sign
-
-# Ouput accounting forFDR
-indicator.results.24 <- data.frame(indval.24, B.24, A.24, sig.24)
-indicator.results.24$Pfdr<-p.adjust(indicator.results.24$p.value, "fdr")
-
-significant.indicators.24<-indicator.results.24[indicator.results.24$Pfdr<0.05, ]
-significant.indicators.24
-
-# point biserial correlation between presence/absence of a species and a habitat type
-pa.24 <- decostand(otu.table.24, method = "pa")
-phi_coeff.24 <- multipatt(pa.24, sampledf.24$cd4_category, func="r.g", duleg=TRUE)
-
-summary(phi_coeff.24)
-
-```
 
 
 Taxon specific barplots from DA taxa identified with DeSeq2.
 
 ```{r ground-truth}
+replace_counts = function(physeq, dds) {
+
+  dds_counts = counts(dds, normalized = TRUE)
+  if (!identical(taxa_names(physeq), rownames(dds_counts))) {
+    stop("OTU ids don't match")
+  }
+  otu_table(physeq) = otu_table(dds_counts, taxa_are_rows = TRUE)
+  return(physeq)
+
+}
+
 # Plots of DeSeq2 identified taxa
 
 # Subset DeSeq2 identified taxa
 # Can choose between 2 transformations from above
 # Typically go with relative abundances as these are more familiar to readers
 
-ps1.base.ra <- transform_sample_counts(ps1.base, function(OTU) OTU/sum(OTU))
-ps1.24.ra <- transform_sample_counts(ps1.24, function(OTU) OTU/sum(OTU))
+# ps1.base.ra <- transform_sample_counts(ps1.base, function(OTU) OTU/sum(OTU))
+# ps1.24.ra <- transform_sample_counts(ps1.24, function(OTU) OTU/sum(OTU))
+ps1.rlog <- replace_counts(ps1, dds.week)
+ps1.base.rlog <- replace_counts(ps1.base, dds.base)
+ps1.24.rlog <- replace_counts(ps1.24, dds.24)
 
 # Genus = Treponema
-ps1_Treponema <- ps1.ra %>%
+ps1_Treponema <- ps1.rlog %>%
     subset_taxa(Genus == "Treponema") %>%
     psmelt() 
 
 # Genus = Muribaculum
-ps1_Muribaculum <- ps1.ra %>%
+ps1_Muribaculum <- ps1.rlog %>%
   subset_taxa(Family == "Porphyromonadaceae") %>%
   psmelt()
 
-# Treponema violin-point plots
-p.Treponema <- ggplot(ps1_Treponema, aes(x = cd4_category, y = Abundance, fill = Genus)) + 
-  scale_size_continuous(range = c(2, 9)) +
-  geom_violin(na.rm = TRUE, alpha = 0.5, fill = "grey", draw_quantiles = TRUE) +
-  facet_grid(Week~Species, scales = "free_x", space = "free_x") +
-  scale_y_log10() +
-  geom_point(mapping = aes(size = sqrt(Abundance), color = Species), alpha = 0.4, na.rm = TRUE)
-p.Treponema
+# Genus = Haemophilus
+ps1_Haemophilus <- ps1.rlog %>%
+  subset_taxa(Genus == "Haemophilus") %>%
+  psmelt()
 
-# Muribaculum violin-point plots
-p.Muribaculum <- ggplot(ps1_Muribaculum, aes(x = cd4_category, y = Abundance, fill = Genus)) + 
-  scale_size_continuous(range = c(2, 9)) +
-  geom_violin(na.rm = TRUE, alpha = 0.5, fill = "grey", draw_quantiles = TRUE) +
-  facet_grid(Week~Species, scales = "free_x", space = "free_x") +
-  scale_y_log10() +
-  geom_point(mapping = aes(size = sqrt(Abundance), color = Species), alpha = 0.4, na.rm = TRUE)
-p.Muribaculum
+# Treponema boxplots
+p.treponema <- ggboxplot(ps1_Treponema, x = "Week", y = "Abundance", outlier.shape = NA) +
+  geom_jitter(aes(color = Species)) +
+  scale_y_log10(breaks=c(0,1,10,100)) +
+  facet_grid(~Species) +
+  ylab("Abundance (rlog)") +
+  theme(axis.title.x = element_blank()) +
+  theme(legend.position = "NULL") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  stat_compare_means(method = "wilcox.test", label = "p.signif")
+
+# Muribaculum boxplots
+p.muribaculum <- ggboxplot(ps1_Muribaculum, x = "Week", y = "Abundance", outlier.shape = NA) +
+  geom_jitter(aes(color = Species)) +
+  scale_y_log10(breaks=c(0,1,10,100)) +
+  facet_grid(~Species) +
+  ylab("Abundance (rlog)") +
+  theme(axis.title.x = element_blank()) +
+  theme(legend.position = "NULL") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  stat_compare_means(method = "wilcox.test", label = "p.signif")
+
+# Haemophilus boxplots
+p.haemophilus <- ggboxplot(ps1_Haemophilus, x = "cd4_category", y = "Abundance", outlier.shape = NA) +
+  geom_jitter(aes(color = Species)) +
+  scale_y_log10(breaks=c(0,1,10,100,1000)) +
+  facet_grid(Week~Species) +
+  ylab("Abundance (rlog)") +
+  theme(axis.title.x = element_blank()) +
+  theme(legend.position = "NULL") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  stat_compare_means(method = "wilcox.test", label = "p.signif")
 
 ```
 
