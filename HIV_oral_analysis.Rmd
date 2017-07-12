@@ -402,6 +402,7 @@ grid.arrange(p.rich.week, p.sd.week, ncol = 2)
 
 
 ```
+
 ```{r alpha-diversity-cd4-vl}
 # CD4 category
 p.rich.CD4 <- ggboxplot(ps1.rich, x = "cd4_category", y = "richness_0", outlier.shape = NA) +
@@ -547,6 +548,29 @@ ancova(richness_0~vl*Week, data = ps1.rich)
 #cor.test(sample_data(ps0.rich.24)$Richness, sample_data(ps0.rich.24)$VL)
 
 ```
+
+```{r intra-inter}
+# Intra = within (same patient)
+# Inter = between (across patients)
+
+# Convert to otu table
+veganotu = function(physeq) {
+
+  OTU = otu_table(physeq)
+  if (taxa_are_rows(OTU)) {
+    OTU = t(OTU)
+  }
+  return(as(OTU, "matrix"))
+}
+otu.table <- veganotu(ps1)
+
+dat.hell <- decostand(otu.table, method = "hellinger")
+dist.hell <- dist(dat.hell, method = "euclidean", diag = TRUE, upper = TRUE)
+pair.hell <- data.frame(t(combn(rownames(as.matrix(dist.hell)),2)), as.numeric(dist.hell))
+head(pair.hell)
+
+```
+
 Random forest feature selection.
 
 ```{r random-forest}
@@ -591,32 +615,7 @@ grid.arrange(p.rf.base, p.rf.24, ncol = 2)
 
 ```
 
-```{r intra-inter}
-# Intra = within (same patient)
-# Inter = between (across patients)
 
-# Convert to otu table
-veganotu = function(physeq) {
-
-  OTU = otu_table(physeq)
-  if (taxa_are_rows(OTU)) {
-    OTU = t(OTU)
-  }
-  return(as(OTU, "matrix"))
-}
-otu.table <- veganotu(ps1)
-
-dat.hell <- decostand(otu.table, method = "hellinger")
-dist.hell <- dist(dat.hell, method = "euclidean", diag = TRUE, upper = TRUE)
-pair.hell <- data.frame(t(combn(rownames(as.matrix(dist.hell)),2)), as.numeric(dist.hell))
-head(pair.hell)
-
-dat.pa <- decostand(otu.table, method = "pa")
-dist.pa <- dist(dat.pa, method = "euclidean", diag = TRUE, upper = TRUE)
-pair.pa <- data.frame(t(combn(rownames(as.matrix(dist.pa)),2)), as.numeric(dist.pa))
-head(pair.pa)
-
-```
 
 Beta Diversity Analysis
 
