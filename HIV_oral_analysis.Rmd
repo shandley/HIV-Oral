@@ -222,6 +222,11 @@ ps1 <- ps0 %>%
   )
 ps1 # Confirm that the taxa were removed
 
+ps1.base <- subset_samples(ps1, Week == "Baseline")
+ps1.base
+ps1.24 <- subset_samples(ps1, Week == "Week 24")
+ps1.24
+
 # Note the prefix (e.g. k__, f__, c__, etc.) is a GreenGenes convention. If you are using RDP or Silva you can simply remove these prefixes.
 
 # To remove RSVs lacking phyla classification
@@ -229,25 +234,42 @@ ps1 # Confirm that the taxa were removed
 
 # Prevelance estimation
 # Calculate feature prevelance across the data set
-prevdf <- apply(X = otu_table(ps1),MARGIN = ifelse(taxa_are_rows(ps1), yes = 1, no = 2),FUN = function(x){sum(x > 0)})
+prevdf.base <- apply(X = otu_table(ps1.base),MARGIN = ifelse(taxa_are_rows(ps1.base), yes = 1, no = 2),FUN = function(x){sum(x > 0)})
+prevdf.24 <- apply(X = otu_table(ps1.24),MARGIN = ifelse(taxa_are_rows(ps1.24), yes = 1, no = 2),FUN = function(x){sum(x > 0)})
 
 # Add taxonomy and total read counts to prevdf
-prevdf <- data.frame(Prevalence = prevdf, TotalAbundance = taxa_sums(ps1), tax_table(ps1))
+prevdf.base <- data.frame(Prevalence = prevdf.base, TotalAbundance = taxa_sums(ps1.base), tax_table(ps1.base))
+prevdf.24 <- data.frame(Prevalence = prevdf.24, TotalAbundance = taxa_sums(ps1.24), tax_table(ps1.24))
 
 # Create a table of Phylum, their mean abundances across all samples, and the number of samples they were detected in
-plyr::ddply(prevdf, "Phylum", function(df1){cbind(mean(df1$Prevalence),sum(df1$Prevalence))})
+plyr::ddply(prevdf.base, "Phylum", function(df1){cbind(mean(df1$Prevalence),sum(df1$Prevalence))})
+plyr::ddply(prevdf.24, "Phylum", function(df1){cbind(mean(df1$Prevalence),sum(df1$Prevalence))})
 
-#Prevalence plot
-prevdf1 <- subset(prevdf, Phylum %in% get_taxa_unique(ps1, "Phylum"))
-p.prevdf1 <- ggplot(prevdf1, aes(TotalAbundance, Prevalence / nsamples(ps1),color=Class)) +
+#Prevalence plot - Baseline
+prevdf1.base <- subset(prevdf.base, Phylum %in% get_taxa_unique(ps1.base, "Phylum"))
+p.prevdf1.base <- ggplot(prevdf1.base, aes(TotalAbundance, Prevalence / nsamples(ps1.base),color=Class)) +
   geom_hline(yintercept = 0.03, alpha = 0.5, linetype = 2) +
-  geom_point(size = 3, alpha = 0.7) +
+  geom_point(size = 2, alpha = 0.7) +
   scale_x_log10() +
   xlab("Total Abundance") + ylab("Prevalence [Frac. Samples]") +
-  facet_wrap(~Phylum) +
-  # theme(legend.position="none") +
-  ggtitle("Phylum Prevelence in All Samples\nColored by Class")
-p.prevdf1
+  facet_grid(~Phylum) +
+  theme(legend.position="bottom") +
+  ggtitle("Phylum Prevelence in All Samples\nBaseline Samples")
+p.prevdf1.base
+
+#Prevalence plot - Weke 24
+prevdf1.24 <- subset(prevdf.24, Phylum %in% get_taxa_unique(ps1.24, "Phylum"))
+p.prevdf1.24 <- ggplot(prevdf1.24, aes(TotalAbundance, Prevalence / nsamples(ps1.24),color=Class)) +
+  geom_hline(yintercept = 0.03, alpha = 0.5, linetype = 2) +
+  geom_point(size = 2, alpha = 0.7) +
+  scale_x_log10() +
+  xlab("Total Abundance") + ylab("Prevalence [Frac. Samples]") +
+  facet_grid(~Phylum) +
+  theme(legend.position="bottom") +
+  ggtitle("Phylum Prevelence in All Samples\Week 24 Samples")
+p.prevdf1.24
+
+grid.arrange(p.prevdf1.base, p.prevdf1.24, nrow = 2)
 
 ```
 No reason to filter low-prevelance taxa at this stage.
@@ -562,12 +584,31 @@ veganotu = function(physeq) {
   }
   return(as(OTU, "matrix"))
 }
+
 otu.table <- veganotu(ps1)
+otu.table.base <- veganotu(ps1.base)
+otu.table.24 <- veganotu(ps1.24)
 
 dat.hell <- decostand(otu.table, method = "hellinger")
-dist.hell <- dist(dat.hell, method = "euclidean", diag = TRUE, upper = TRUE)
-pair.hell <- data.frame(t(combn(rownames(as.matrix(dist.hell)),2)), as.numeric(dist.hell))
+dat.hell.base <- decostand(otu.table.base, method = "hellinger")
+dat.hell.24 <- decostand(otu.table.24, method = "hellinger")
+
+dist.hell <- vegdist(dat.hell, method = "bray")
+dist.hell.base <- vegdist(dat.hell.base, method = "bray")
+dist.hell.24 <- vegdist(dat.hell.24, method = "bray")
+write.table(as.matrix(dist.hell), file = "./results/dist_hell_bray.txt", sep = "\t")
+
+pair.hell <- data.frame(t(combn(rownames(as.matrix(dist.hell)),2, simplify = TRUE)), as.numeric(dist.hell))
 head(pair.hell)
+write.table(pair.hell, file = "./results/pair_hell.txt", sep = "\t")
+
+pair.hell.base <- data.frame(t(combn(rownames(as.matrix(dist.hell.base)),2, simplify = TRUE)), as.numeric(dist.hell.base))
+head(pair.hell.base)
+write.table(pair.hell.base, file = "./results/pair_hell_base.txt", sep = "\t")
+
+pair.hell.24 <- data.frame(t(combn(rownames(as.matrix(dist.hell.24)),2, simplify = TRUE)), as.numeric(dist.hell.24))
+head(pair.hell.24)
+write.table(pair.hell.24, file = "./results/pair_hell_24.txt", sep = "\t")
 
 ```
 
@@ -614,8 +655,6 @@ grid.arrange(p.rf.base, p.rf.24, ncol = 2)
 
 
 ```
-
-
 
 Beta Diversity Analysis
 
