@@ -277,6 +277,7 @@ grid.arrange(p.prevdf1.base, p.prevdf1.24, nrow = 2)
 ```
 
 ```{r phyla_alpha_diversity}
+# All samples
 ps1_Bacteroidetes <- subset_taxa(ps1, Phylum == "Bacteroidetes")
 ntaxa(ps1_Bacteroidetes)
 ps1_Firmicutes <- subset_taxa(ps1, Phylum == "Firmicutes")
@@ -302,6 +303,61 @@ estimate_richness(ps1_Actinobacteria, split = F, measures = "Shannon")
 estimate_richness(ps1_Spirochaetes, split = F, measures = "Shannon")
 estimate_richness(ps1_Tenericutes, split = F, measures = "Shannon")
 estimate_richness(ps1_Synergistetes, split = F, measures = "Shannon")
+
+# Baseline samples
+ps1.base_Bacteroidetes <- subset_taxa(ps1.base, Phylum == "Bacteroidetes")
+ntaxa(ps1.base_Bacteroidetes)
+ps1.base_Firmicutes <- subset_taxa(ps1.base, Phylum == "Firmicutes")
+ntaxa(ps1.base_Firmicutes)
+ps1.base_Proteobacteria <- subset_taxa(ps1.base, Phylum == "Proteobacteria")
+ntaxa(ps1.base_Proteobacteria)
+ps1.base_Fusobacteria <- subset_taxa(ps1.base, Phylum == "Fusobacteria")
+ntaxa(ps1.base_Fusobacteria)
+ps1.base_Actinobacteria <- subset_taxa(ps1.base, Phylum == "Actinobacteria")
+ntaxa(ps1.base_Actinobacteria)
+ps1.base_Spirochaetes <- subset_taxa(ps1.base, Phylum == "Spirochaetes")
+ntaxa(ps1.base_Spirochaetes)
+ps1.base_Tenericutes <- subset_taxa(ps1.base, Phylum == "Tenericutes")
+ntaxa(ps1.base_Tenericutes)
+ps1.base_Synergistetes <- subset_taxa(ps1.base, Phylum == "Synergistetes")
+ntaxa(ps1.base_Synergistetes)
+
+estimate_richness(ps1.base_Bacteroidetes, split = F, measures = "Shannon")
+estimate_richness(ps1.base_Firmicutes, split = F, measures = "Shannon")
+estimate_richness(ps1.base_Proteobacteria, split = F, measures = "Shannon")
+estimate_richness(ps1.base_Fusobacteria, split = F, measures = "Shannon")
+estimate_richness(ps1.base_Actinobacteria, split = F, measures = "Shannon")
+estimate_richness(ps1.base_Spirochaetes, split = F, measures = "Shannon")
+estimate_richness(ps1.base_Tenericutes, split = F, measures = "Shannon")
+estimate_richness(ps1.base_Synergistetes, split = F, measures = "Shannon")
+
+# Week 24 Samples
+ps1.24_Bacteroidetes <- subset_taxa(ps1.24, Phylum == "Bacteroidetes")
+ntaxa(ps1.24_Bacteroidetes)
+ps1.24_Firmicutes <- subset_taxa(ps1.24, Phylum == "Firmicutes")
+ntaxa(ps1.24_Firmicutes)
+ps1.24_Proteobacteria <- subset_taxa(ps1.24, Phylum == "Proteobacteria")
+ntaxa(ps1.24_Proteobacteria)
+ps1.24_Fusobacteria <- subset_taxa(ps1.24, Phylum == "Fusobacteria")
+ntaxa(ps1.24_Fusobacteria)
+ps1.24_Actinobacteria <- subset_taxa(ps1.24, Phylum == "Actinobacteria")
+ntaxa(ps1.24_Actinobacteria)
+ps1.24_Spirochaetes <- subset_taxa(ps1.24, Phylum == "Spirochaetes")
+ntaxa(ps1.24_Spirochaetes)
+ps1.24_Tenericutes <- subset_taxa(ps1.24, Phylum == "Tenericutes")
+ntaxa(ps1.24_Tenericutes)
+ps1.24_Synergistetes <- subset_taxa(ps1.24, Phylum == "Synergistetes")
+ntaxa(ps1.24_Synergistetes)
+
+estimate_richness(ps1.24_Bacteroidetes, split = F, measures = "Shannon")
+estimate_richness(ps1.24_Firmicutes, split = F, measures = "Shannon")
+estimate_richness(ps1.24_Proteobacteria, split = F, measures = "Shannon")
+estimate_richness(ps1.24_Fusobacteria, split = F, measures = "Shannon")
+estimate_richness(ps1.24_Actinobacteria, split = F, measures = "Shannon")
+estimate_richness(ps1.24_Spirochaetes, split = F, measures = "Shannon")
+estimate_richness(ps1.24_Tenericutes, split = F, measures = "Shannon")
+estimate_richness(ps1.24_Synergistetes, split = F, measures = "Shannon")
+
 
 ```
 No reason to filter low-prevelance taxa at this stage.
