@@ -241,35 +241,67 @@ prevdf.24 <- apply(X = otu_table(ps1.24),MARGIN = ifelse(taxa_are_rows(ps1.24), 
 prevdf.base <- data.frame(Prevalence = prevdf.base, TotalAbundance = taxa_sums(ps1.base), tax_table(ps1.base))
 prevdf.24 <- data.frame(Prevalence = prevdf.24, TotalAbundance = taxa_sums(ps1.24), tax_table(ps1.24))
 
+# Reorder based on visual inspection of relative dominance of each taxa for plotting
+prevdf.base$Phylum <- factor(prevdf.base$Phylum, levels = c("Bacteroidetes", "Firmicutes", "Proteobacteria", "Fusobacteria", "Actinobacteria", "Spirochaetes", "Tenericutes","Synergistetes"))
+prevdf.24$Phylum <- factor(prevdf.24$Phylum, levels = c("Bacteroidetes", "Firmicutes", "Proteobacteria", "Fusobacteria", "Actinobacteria", "Spirochaetes", "Tenericutes","Synergistetes"))
+
 # Create a table of Phylum, their mean abundances across all samples, and the number of samples they were detected in
 plyr::ddply(prevdf.base, "Phylum", function(df1){cbind(mean(df1$Prevalence),sum(df1$Prevalence))})
 plyr::ddply(prevdf.24, "Phylum", function(df1){cbind(mean(df1$Prevalence),sum(df1$Prevalence))})
 
 #Prevalence plot - Baseline
 prevdf1.base <- subset(prevdf.base, Phylum %in% get_taxa_unique(ps1.base, "Phylum"))
-p.prevdf1.base <- ggplot(prevdf1.base, aes(TotalAbundance, Prevalence / nsamples(ps1.base),color=Class)) +
-  geom_hline(yintercept = 0.03, alpha = 0.5, linetype = 2) +
-  geom_point(size = 2, alpha = 0.7) +
-  scale_x_log10() +
+p.prevdf1.base <- ggplot(prevdf1.base, aes(TotalAbundance, Prevalence / nsamples(ps1.base),color=Family)) +
+  # geom_hline(yintercept = 0.03, alpha = 0.5, linetype = 2) +
+  geom_point(size = 1.5, alpha = 0.7) +
+  scale_x_log10(limits = c(1,10000), breaks = c(100,10000)) +
   xlab("Total Abundance") + ylab("Prevalence [Frac. Samples]") +
   facet_grid(~Phylum) +
-  theme(legend.position="bottom") +
-  ggtitle("Phylum Prevelence in All Samples\nBaseline Samples")
-p.prevdf1.base
+  theme(legend.position="None") +
+  theme(axis.title.x = element_blank())
+  #ggtitle("Baseline Samples")
 
 #Prevalence plot - Weke 24
 prevdf1.24 <- subset(prevdf.24, Phylum %in% get_taxa_unique(ps1.24, "Phylum"))
-p.prevdf1.24 <- ggplot(prevdf1.24, aes(TotalAbundance, Prevalence / nsamples(ps1.24),color=Class)) +
-  geom_hline(yintercept = 0.03, alpha = 0.5, linetype = 2) +
-  geom_point(size = 2, alpha = 0.7) +
-  scale_x_log10() +
+p.prevdf1.24 <- ggplot(prevdf1.24, aes(TotalAbundance, Prevalence / nsamples(ps1.24),color=Family)) +
+  # geom_hline(yintercept = 0.03, alpha = 0.5, linetype = 2) +
+  geom_point(size = 1.5, alpha = 0.7) +
+  scale_x_log10(limits = c(1,10000), breaks = c(100,10000)) +
   xlab("Total Abundance") + ylab("Prevalence [Frac. Samples]") +
   facet_grid(~Phylum) +
-  theme(legend.position="bottom") +
-  ggtitle("Phylum Prevelence in All Samples\Week 24 Samples")
-p.prevdf1.24
+  theme(legend.position="none")
+  #ggtitle("Week 24 Samples")
 
 grid.arrange(p.prevdf1.base, p.prevdf1.24, nrow = 2)
+
+```
+
+```{r phyla_alpha_diversity}
+ps1_Bacteroidetes <- subset_taxa(ps1, Phylum == "Bacteroidetes")
+ntaxa(ps1_Bacteroidetes)
+ps1_Firmicutes <- subset_taxa(ps1, Phylum == "Firmicutes")
+ntaxa(ps1_Firmicutes)
+ps1_Proteobacteria <- subset_taxa(ps1, Phylum == "Proteobacteria")
+ntaxa(ps1_Proteobacteria)
+ps1_Fusobacteria <- subset_taxa(ps1, Phylum == "Fusobacteria")
+ntaxa(ps1_Fusobacteria)
+ps1_Actinobacteria <- subset_taxa(ps1, Phylum == "Actinobacteria")
+ntaxa(ps1_Actinobacteria)
+ps1_Spirochaetes <- subset_taxa(ps1, Phylum == "Spirochaetes")
+ntaxa(ps1_Spirochaetes)
+ps1_Tenericutes <- subset_taxa(ps1, Phylum == "Tenericutes")
+ntaxa(ps1_Tenericutes)
+ps1_Synergistetes <- subset_taxa(ps1, Phylum == "Synergistetes")
+ntaxa(ps1_Synergistetes)
+
+estimate_richness(ps1_Bacteroidetes, split = F, measures = "Shannon")
+estimate_richness(ps1_Firmicutes, split = F, measures = "Shannon")
+estimate_richness(ps1_Proteobacteria, split = F, measures = "Shannon")
+estimate_richness(ps1_Fusobacteria, split = F, measures = "Shannon")
+estimate_richness(ps1_Actinobacteria, split = F, measures = "Shannon")
+estimate_richness(ps1_Spirochaetes, split = F, measures = "Shannon")
+estimate_richness(ps1_Tenericutes, split = F, measures = "Shannon")
+estimate_richness(ps1_Synergistetes, split = F, measures = "Shannon")
 
 ```
 No reason to filter low-prevelance taxa at this stage.
