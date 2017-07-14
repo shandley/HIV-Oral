@@ -1088,7 +1088,121 @@ head(sigtab_dds.24)
 
 ```
 
+```{r diffab-cd4-baseline}
+ps1.cd4low <- subset_samples(ps1, cd4_category == "CD4 Low")
+ps1.cd4low
 
+# Differential Abundance - 24line ~ CD4 and VL Category
+ds.cd4low <- phyloseq_to_deseq2(ps1.cd4low, ~Week) # Change formula to VL_category and rerun to test VL_category
+dds.cd4low <- DESeq(ds.cd4low, test="Wald", fitType="local", betaPrior = FALSE) # Worth trying parametric and local fitTypes
+
+res.dds.cd4low = results(dds.cd4low, cooksCutoff = TRUE)
+alpha = 0.1
+sigtab_dds.cd4low = res.dds.cd4low[which(res.dds.cd4low$padj < alpha), ]
+head(sigtab_dds.cd4low)
+
+# Quick check of factor levels
+# Factor on the right will be on the left in the volcano plots. Relevel to switch
+mcols(res.dds.cd4low, use.names = TRUE)
+
+# Create volcano plots of signficant results
+# Prepare to join results data.table and taxonomy table
+# cd4lowline
+resdt.cd4low = data.table(as(results(dds.cd4low, cooksCutoff = FALSE), "data.frame"),
+                   keep.rownames = TRUE)
+setnames(resdt.cd4low, "rn", "OTU")
+taxdt.cd4low = data.table(data.frame(as(tax_table(ps1.cd4low), "matrix")), keep.rownames = TRUE)
+setnames(taxdt.cd4low, "rn", "OTU")
+
+# Join results data.table and taxonomy table
+setkeyv(taxdt.cd4low, "OTU")
+setkeyv(resdt.cd4low, "OTU")
+resdt.cd4low <- taxdt.cd4low[resdt.cd4low]
+resdt.cd4low
+resdt.cd4low[, Significant := padj < alpha]
+resdt.cd4low[!is.na(Significant)]
+resdt.cd4low
+
+volcano.cd4low = ggplot(
+  data = resdt.cd4low[!is.na(Significant)][(pvalue < 1)],
+  mapping = aes(x = log2FoldChange,
+                y = -log10(pvalue),
+                color = Phylum,
+                label = OTU, label1 = Genus)) +
+  theme_bw() +
+  geom_point() + 
+  geom_point(data = resdt.cd4low[(Significant)], size = 7, alpha = 0.7) + 
+  # geom_text(data = resdt.cd4low[(Significant)], mapping = aes(label = paste("Genus:", Genus)), color = "black", size = 3) +
+  theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) +
+  geom_hline(yintercept = -log10(alpha)) +
+  ggtitle("DESeq2 Negative Binomial Test Volcano Plot\ncd4lowline Samples") +
+  theme(axis.title = element_text(size=12)) +
+  theme(axis.text = element_text(size=12)) +
+  theme(legend.text = element_text(size=12)) +
+  geom_vline(xintercept = 0, lty = 2)
+volcano.cd4low
+
+ggplotly(volcano.cd4low)
+
+```
+
+```{r diffab-cd4-week-24}
+ps1.cd4high <- subset_samples(ps1, cd4_category == "CD4 High")
+ps1.cd4high
+
+# Differential Abundance - 24line ~ CD4 and VL Category
+ds.cd4high <- phyloseq_to_deseq2(ps1.cd4high, ~Week) # Change formula to VL_category and rerun to test VL_category
+dds.cd4high <- DESeq(ds.cd4high, test="Wald", fitType="local", betaPrior = FALSE) # Worth trying parametric and local fitTypes
+
+res.dds.cd4high = results(dds.cd4high, cooksCutoff = TRUE)
+alpha = 0.1
+sigtab_dds.cd4high = res.dds.cd4high[which(res.dds.cd4high$padj < alpha), ]
+head(sigtab_dds.cd4high)
+
+# Quick check of factor levels
+# Factor on the right will be on the left in the volcano plots. Relevel to switch
+mcols(res.dds.cd4high, use.names = TRUE)
+
+# Create volcano plots of signficant results
+# Prepare to join results data.table and taxonomy table
+# cd4highline
+resdt.cd4high = data.table(as(results(dds.cd4high, cooksCutoff = FALSE), "data.frame"),
+                   keep.rownames = TRUE)
+setnames(resdt.cd4high, "rn", "OTU")
+taxdt.cd4high = data.table(data.frame(as(tax_table(ps1.cd4high), "matrix")), keep.rownames = TRUE)
+setnames(taxdt.cd4high, "rn", "OTU")
+
+# Join results data.table and taxonomy table
+setkeyv(taxdt.cd4high, "OTU")
+setkeyv(resdt.cd4high, "OTU")
+resdt.cd4high <- taxdt.cd4high[resdt.cd4high]
+resdt.cd4high
+resdt.cd4high[, Significant := padj < alpha]
+resdt.cd4high[!is.na(Significant)]
+resdt.cd4high
+
+volcano.cd4high = ggplot(
+  data = resdt.cd4high[!is.na(Significant)][(pvalue < 1)],
+  mapping = aes(x = log2FoldChange,
+                y = -log10(pvalue),
+                color = Phylum,
+                label = OTU, label1 = Genus)) +
+  theme_bw() +
+  geom_point() + 
+  geom_point(data = resdt.cd4high[(Significant)], size = 7, alpha = 0.7) + 
+  # geom_text(data = resdt.cd4high[(Significant)], mapping = aes(label = paste("Genus:", Genus)), color = "black", size = 3) +
+  theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) +
+  geom_hline(yintercept = -log10(alpha)) +
+  ggtitle("DESeq2 Negative Binomial Test Volcano Plot\ncd4highline Samples") +
+  theme(axis.title = element_text(size=12)) +
+  theme(axis.text = element_text(size=12)) +
+  theme(legend.text = element_text(size=12)) +
+  geom_vline(xintercept = 0, lty = 2)
+volcano.cd4high
+
+ggplotly(volcano.cd4high)
+
+```
 
 Taxon specific barplots from DA taxa identified with DeSeq2.
 
@@ -1104,68 +1218,85 @@ replace_counts = function(physeq, dds) {
 
 }
 
-# Plots of DeSeq2 identified taxa
-
-# Subset DeSeq2 identified taxa
-# Can choose between 2 transformations from above
-# Typically go with relative abundances as these are more familiar to readers
-
-# ps1.base.ra <- transform_sample_counts(ps1.base, function(OTU) OTU/sum(OTU))
-# ps1.24.ra <- transform_sample_counts(ps1.24, function(OTU) OTU/sum(OTU))
+## Transform
+# Convert raw counts to rlog normalized counts
 ps1.rlog <- replace_counts(ps1, dds.week)
 ps1.base.rlog <- replace_counts(ps1.base, dds.base)
 ps1.24.rlog <- replace_counts(ps1.24, dds.24)
 
+## Subset
 # Genus = Treponema
 ps1_Treponema <- ps1.rlog %>%
     subset_taxa(Genus == "Treponema") %>%
-    psmelt() 
+    psmelt()
+# Subset deseq2 ID'd sequence
+ps1_Treponema.seq <- subset(ps1_Treponema, OTU == "GCGAGCGTTGTTCGGAATTATTGGGCGTAAAGGGCATGTAGGCGGATGAGCAAGCTTGGTGTGAAATGCTACAGCTTAACTGTGGGACAGCATTGAGAACTGCACATCTTGAATTACTGAAGGGTAACTAGAATTCCACGTGTAGGGGTGAAATCTGTAGATATGTGGAAGAATACCAATGGCGAAGGCAAGTTACCGGCAGATAATTGACGCTGAGGTGCGAAAGTGCGGGG")
+write.table(ps1_Treponema.seq, file = "./results/ps1_Treponema_seq.txt", sep = "\t")
 
 # Genus = Muribaculum
 ps1_Muribaculum <- ps1.rlog %>%
   subset_taxa(Family == "Porphyromonadaceae") %>%
   psmelt()
+# Subset deseq2 ID'd sequence
+ps1_Muribaculum.seq <- subset(ps1_Muribaculum, OTU == "GCGAGCGTTATCCGGATTTATTGGGTTTAAAGGGTGCGTAGGCGGTCCGTTAAGTCAGCGGTAAAATTGCGGGGCTCAACCCCGTCGAGCCGTTGAAACTGGCAGACTTGAGTTGGCGAGAAGTACGCGGAATGCGCGGTGTAGCGGTGAAATGCATAGATATCGCGCAGAACTCCGATTGCGAAGGCAGCGTACCGGCGCCACACTGACGCTGAGGCACGAAAGCGTGGGG")
+write.table(ps1_Muribaculum.seq, file = "./results/ps1_Muribaculum_seq.txt", sep = "\t")
 
 # Genus = Haemophilus
 ps1_Haemophilus <- ps1.rlog %>%
   subset_taxa(Genus == "Haemophilus") %>%
   psmelt()
+# Subset deseq2 ID'd sequence
+ps1_Haemophilus.seq <- subset(ps1_Haemophilus, OTU == "GCGAGCGTTAATCGGAATAACTGGGCGTAAAGGGCACGCAGGCGGTGACTTAAGTGAGGTGTGAAAGCCCCGGGCTTAACCTGGGAATTGCATTTCATACTGGGTCGCTAGAGTACTTTAGGGAGGGGTAGAATTCCACGTGTAGCGGTGAAATGCGTAGAGATGTGGAGGAATACCGAAGGCGAAGGCAGCCCCTTGGGAATGTACTGACGCTCATGTGCGAAAGCGTGGGG")
+write.table(ps1_Haemophilus.seq, file = "./results/ps1_Haemophilus_seq.txt", sep = "\t")
 
+## Plot
 # Treponema boxplots
-p.treponema <- ggboxplot(ps1_Treponema, x = "Week", y = "Abundance", outlier.shape = NA) +
-  geom_jitter(aes(color = Species)) +
+p.treponema <- ggboxplot(ps1_Treponema.seq, x = "Week", y = "Abundance", outlier.shape = NA) +
+  geom_jitter(mapping = aes(size = 2, color = cd4_category), alpha = 0.4, na.rm = TRUE, width = 0.3) +
   scale_y_log10(breaks=c(0,1,10,100)) +
-  facet_grid(~Species) +
   ylab("Abundance (rlog)") +
   theme(axis.title.x = element_blank()) +
   theme(legend.position = "NULL") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  stat_compare_means(method = "wilcox.test", label = "p.signif")
+  stat_compare_means(method = "wilcox.test", label = "p.format")
 p.treponema
 
 # Muribaculum boxplots
-p.muribaculum <- ggboxplot(ps1_Muribaculum, x = "Week", y = "Abundance", outlier.shape = NA) +
-  geom_jitter(aes(color = Species)) +
+p.muribaculum <- ggboxplot(ps1_Muribaculum.seq, x = "Week", y = "Abundance", outlier.shape = NA) +
+  geom_jitter(mapping = aes(size = 2, color = cd4_category), alpha = 0.4, na.rm = TRUE, width = 0.3) +
   scale_y_log10(breaks=c(0,1,10,100)) +
-  facet_grid(~Species) +
   ylab("Abundance (rlog)") +
   theme(axis.title.x = element_blank()) +
   theme(legend.position = "NULL") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  stat_compare_means(method = "wilcox.test", label = "p.signif")
+  stat_compare_means(method = "t.test", label = "p.format")
 p.muribaculum
 
 # Haemophilus boxplots
-p.haemophilus <- ggboxplot(ps1_Haemophilus, x = "cd4_category", y = "Abundance", outlier.shape = NA) +
-  geom_jitter(aes(color = Species)) +
+p.haemophilus <- ggboxplot(ps1_Haemophilus.seq, x = "cd4_category", y = "Abundance", outlier.shape = NA) +
+  geom_jitter(mapping = aes(size = 2), alpha = 0.4, na.rm = TRUE, width = 0.3) +
+  facet_grid(~Week) +
   scale_y_log10(breaks=c(0,1,10,100,1000)) +
-  facet_grid(Week~Species) +
   ylab("Abundance (rlog)") +
   theme(axis.title.x = element_blank()) +
   theme(legend.position = "NULL") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  stat_compare_means(method = "wilcox.test", label = "p.signif")
+  stat_compare_means(method = "wilcox.test", label = "p.format")
 p.haemophilus
+
+# Haemophilus - cd4_category
+p.haemophilus.week <- ggboxplot(ps1_Haemophilus.seq, x = "Week", y = "Abundance", outlier.shape = NA) +
+  geom_jitter(mapping = aes(size = 2), alpha = 0.4, na.rm = TRUE, width = 0.3) +
+  facet_grid(~cd4_category) +
+  scale_y_log10(breaks=c(0,1,10,100,1000)) +
+  ylab("Abundance (rlog)") +
+  theme(axis.title.x = element_blank()) +
+  theme(legend.position = "NULL") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  stat_compare_means(method = "t.test", label = "p.format")
+p.haemophilus.week
+
+grid.arrange(p.haemophilus, p.haemophilus.week, nrow = 2)
 
 ```
 
