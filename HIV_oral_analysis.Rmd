@@ -8,7 +8,7 @@ output: html_document
 # Project Description:
 Analysis of 16S rRNA amplicons in oral samples (saliva) collected from HIV infected patients pre-ART treatment and 24 weeks after treatment initiation.
 
-This document describes the analysis of dada2 resolved sequences analysis of dada2 resolved seuqnece variants of 70 samples; 35 samples were collected at the inititation of the study from male HIV positive patients (baseline) and 35 follow-up samples 24 weeks after the inititation of ART.
+This document describes the analysis of dada2 resolved sequences analysis of dada2 resolved sequence variants of 70 samples; 35 samples were collected at the inititation of the study from male HIV positive patients (baseline) and 35 follow-up samples 24 weeks after the inititation of ART.
 
 **Collaborator:**
 Rachel Presti (prestir@wustl.edu)
@@ -208,7 +208,7 @@ p.MDS.outlier
 
 ```
 
-All samples are realtivaley tighlty clustered. No samples will be removed based on MDS of Bray-curtis distances.
+All samples are relatively tighlty clustered. No samples will be removed based on MDS of Bray-curtis distances.
 
 ```{r prevalence-assessment}
 # Begin by removing sequences that were not classified as Bacteria or were classified as either mitochondria or chlorplast
@@ -232,8 +232,8 @@ ps1.24
 # To remove RSVs lacking phyla classification
 #ps2 <- subset_taxa(ps2, !is.na(Phylum) & !Phylum %in% c("","uncharacterized"))
 
-# Prevelance estimation
-# Calculate feature prevelance across the data set
+# Prevalence estimation
+# Calculate feature prevalence across the data set
 prevdf.base <- apply(X = otu_table(ps1.base),MARGIN = ifelse(taxa_are_rows(ps1.base), yes = 1, no = 2),FUN = function(x){sum(x > 0)})
 prevdf.24 <- apply(X = otu_table(ps1.24),MARGIN = ifelse(taxa_are_rows(ps1.24), yes = 1, no = 2),FUN = function(x){sum(x > 0)})
 
